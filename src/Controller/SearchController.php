@@ -5,15 +5,20 @@ namespace IiifSearch\Controller;
 use Laminas\Http\Response;
 use Laminas\Mvc\Controller\AbstractActionController;
 use Laminas\View\Model\JsonModel;
-use Omeka\Mvc\Exception\NotFoundException;
 
 class SearchController extends AbstractActionController
 {
     public function indexAction()
     {
+        // TODO The output must be a valid json iiif response.
+
         $id = $this->params('id');
         if (empty($id)) {
-            throw new NotFoundException;
+            $this->getResponse()->setStatusCode(Response::STATUS_CODE_400);
+            return new JsonModel([
+                'status' => 'error',
+                'message' => $this->translate('Missing or empty query.'), // @translate
+            ]);
         }
 
         $q = (string) $this->params()->fromQuery('q');
@@ -26,7 +31,23 @@ class SearchController extends AbstractActionController
         }
 
         // Exception is automatically thrown by api.
-        $item = $this->api()->read('items', $id)->getContent();
+        if (is_numeric($id)) {
+            try {
+                $item = $this->api()->read('items', $id)->getContent();
+            } catch (\Exception $e) {
+                // See below.
+            }
+        } elseif (class_exists('CleanUrl\Module', false)) {
+            $item = $this->viewHelpers()->get('getResourceFromIdentifier')($id);
+        }
+
+        if (empty($item)) {
+            $this->getResponse()->setStatusCode(Response::STATUS_CODE_404);
+            return new JsonModel([
+                'status' => 'error',
+                'message' => $this->translate('Resource not found or unavailable.'),  // @translate
+            ]);
+        }
 
         $iiifSearch = $this->viewHelpers()->get('iiifSearch');
         $searchResponse = $iiifSearch($item);
