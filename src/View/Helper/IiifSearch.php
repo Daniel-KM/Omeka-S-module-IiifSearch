@@ -141,6 +141,21 @@ class IiifSearch extends AbstractHelper
      */
     protected $mediaXmlFirst;
 
+    /**
+     * @var string
+     */
+    protected $query;
+
+    /**
+     * @var string
+     */
+    protected $queryWords;
+
+    /**
+     * @var bool
+     */
+    protected $queryIsExactSearch;
+
     public function __construct(
         ApiManager $api,
         ?DerivativeList $derivativeList,
@@ -176,30 +191,38 @@ class IiifSearch extends AbstractHelper
     {
         $this->item = $item;
 
-        if (!$this->prepareSearch()) {
-            return null;
+        $view = $this->getView();
+
+        // Prepare query early to manage the better search process.
+        $this->query = trim((string) $view->params()->fromQuery('q'));
+        $this->queryIsExactSearch = mb_substr($this->query, 0, 1) === '"' && mb_substr($this->query, -1) === '"';
+        if ($this->queryIsExactSearch) {
+            $this->query = trim(mb_substr($this->query, 1, -1));
         }
 
-        $view = $this->getView();
+        // Normally not possible, because the service should not be set in the
+        // manifest in that case. But some viewers or users can try direct
+        // requests.
+        if (!$this->prepareSearchIndexAndImages()) {
+            return null;
+        }
 
         $response = new AnnotationList();
         $response->initOptions([
             'requestUri' => $view->serverUrl(true),
         ]);
 
-        $query = trim((string) $view->params()->fromQuery('q'));
-
-        if (!strlen($query)) {
+        if (!strlen($this->query)) {
             $response->isValid(true);
             return $response;
         }
 
         // TODO Add a warning when the number of images is not the same than the number of pages. But it may be complex because images are not really managed with xml files, so warn somewhere else.
 
-        $result = $this->searchFulltext($query);
+        $result = $this->searchFulltext();
 
         if ($this->searchMediaValues) {
-            $resultValues = $this->searchMediaValues($query, $result ? $result['hit'] : 0, $result ? $result['media_ids'] : []);
+            $resultValues = $this->searchMediaValues($result ? $result['hit'] : 0, $result ? $result['media_ids'] : []);
             if ($result === null && $resultValues === null) {
                 $response->isValid(true);
                 return $response;
@@ -259,38 +282,38 @@ class IiifSearch extends AbstractHelper
      * ]
      * ```
      */
-    protected function searchFulltext(string $query): ?array
+    protected function searchFulltext(): ?array
     {
-        if (!strlen($query)) {
+        if (!strlen($this->query)) {
             return null;
         }
 
-        $queryWords = $this->formatQuery($query);
-        if (empty($queryWords)) {
+        $this->queryWords = $this->prepareAndFormatQueryByWord();
+        if (empty($this->queryWords)) {
             return null;
         }
 
         if ($this->index === 'text/tab-separated-values') {
             $filepath = $this->indexFilePath ?: $this->basePath . '/original/' . $this->mediaTsv->filename();
-            return $this->searchFullTextTsv($filepath, $queryWords, false);
+            return $this->searchFullTextTsv($filepath, false);
         } elseif ($this->index === 'text/tab-separated-values;by-word') {
             $filepath = $this->indexFilePath ?: $this->basePath . '/original/' . $this->mediaTsv->filename();
-            return $this->searchFullTextTsv($filepath, $queryWords, true);
+            return $this->searchFullTextTsv($filepath, true);
         }
 
         $xml = $this->loadXml();
         if (empty($xml)) {
             return null;
         } elseif ($this->index === 'application/alto+xml') {
-            return $this->searchFullTextAlto($xml, $queryWords);
+            return $this->searchFullTextAlto($xml);
         } elseif ($this->index === 'application/vnd.pdf2xml+xml') {
-            return $this->searchFullTextPdfXml($xml, $queryWords);
+            return $this->searchFullTextPdfXml($xml);
         } else {
             return null;
         }
     }
 
-    protected function searchFullTextAlto(SimpleXmlElement $xml, $queryWords): ?array
+    protected function searchFullTextAlto(SimpleXmlElement $xml): ?array
     {
         $result = [
             'resources' => [],
@@ -369,7 +392,7 @@ class IiifSearch extends AbstractHelper
                     $matches = [];
                     $zone = [];
                     $zone['text'] = (string) $attributes->CONTENT;
-                    foreach ($queryWords as $chars) {
+                    foreach ($this->queryWords as $chars) {
                         if (!empty($this->imageSizes[$pageIndex]['width'])
                             && !empty($this->imageSizes[$pageIndex]['height'])
                             && preg_match('/' . $chars . '/Uui', $zone['text'], $matches) > 0
@@ -424,7 +447,7 @@ class IiifSearch extends AbstractHelper
         return $result;
     }
 
-    protected function searchFullTextPdfXml(SimpleXmlElement $xml, $queryWords): ?array
+    protected function searchFullTextPdfXml(SimpleXmlElement $xml): ?array
     {
         $result = [
             'resources' => [],
@@ -489,7 +512,8 @@ class IiifSearch extends AbstractHelper
                     ++$indexXmlLine;
                     $zone = [];
                     $zone['text'] = strip_tags($xmlRow->asXML());
-                    foreach ($queryWords as $chars) {
+
+                    foreach ($this->queryWords as $chars) {
                         if (!empty($this->imageSizes[$pageIndex]['width'])
                             && !empty($this->imageSizes[$pageIndex]['height'])
                             && preg_match('/' . $chars . '/Uui', $zone['text'], $matches) > 0
@@ -550,7 +574,7 @@ class IiifSearch extends AbstractHelper
         return $result;
     }
 
-    protected function searchFulltextTsv(string $filepath, array $queryWords, bool $isTsvByWord) :?array
+    protected function searchFulltextTsv(string $filepath, bool $isTsvByWord) :?array
     {
         // Extract whole tsv.
         $handle = fopen($filepath, 'r');
@@ -562,40 +586,140 @@ class IiifSearch extends AbstractHelper
             return null;
         }
 
-        $wordPositions = [];
-        if ($isTsvByWord) {
-            while (($data = fgetcsv($handle, 1000000, "\t", chr(0), chr(0))) !== false) {
-                $wordPositions[$data[0]] = $data[1];
+        $processExactSearch = $this->queryIsExactSearch
+            // TODO Manage process for a single word.
+            && count($this->queryWords) > 1
+            && !$isTsvByWord;
+
+        if ($processExactSearch) {
+            // Search all words as an expression.
+            // In tsv, the words are more cleaned than xml during extract ocr process.
+            $cleanQueryWords = [];
+            foreach ($this->queryWords as $key => $queryWord) {
+                if ($key === 'full') {
+                    continue;
+                }
+                $word = $this->normalize($queryWord);
+                $word = mb_strtolower($word, 'UTF-8');
+                $cleanQueryWords[] = $word;
             }
-        } else {
+
+            $countQueryWords = count($cleanQueryWords);
+
+            $expressionPositions = [];
+            $indexQueryWord = 0;
+            $currentExpression = [];
             while (($data = fgetcsv($handle, 1000000, "\t", chr(0), chr(0))) !== false) {
                 $word = mb_strtolower($data[0], 'UTF-8');
-                $wordPositions[$word][] = [$data[1], $data[2]];
+                if ($word !== $cleanQueryWords[$indexQueryWord]) {
+                    // Reset current result, but retry with the first word.
+                    $currentExpression = [];
+                    if (!$indexQueryWord) {
+                        continue;
+                    }
+                    $indexQueryWord = 0;
+                    if ($word !== $cleanQueryWords[$indexQueryWord]) {
+                        continue;
+                    }
+                }
+                $currentExpression[] = $data;
+                if (count($currentExpression) < $countQueryWords) {
+                    ++$indexQueryWord;
+                } else {
+                    // Display the words as a whole, so compute xywh, but manage
+                    // the case where there are multiple pages.
+                    // The expression may be partial when it is on two pages.
+                    $pages = array_unique(array_column($currentExpression, 1));
+                    if (count($pages) === 1) {
+                        // Get the xywh by page and by expression
+                        // The string is probably useless here, but needed to
+                        // manage the case where there are expressions on
+                        // a single page and on multiple pages (see below).
+                        $zones = [];
+                        foreach ($currentExpression as $pageData) {
+                            $left = strtok($pageData[2], ',');;
+                            $top = strtok(',');
+                            $width = strtok(',');
+                            $height = strtok(',');
+                            if (!strlen($top) || !strlen($left) || !$width || !$height) {
+                                $this->logger->warn(new Message(
+                                    'Inconsistent data for item #%1$d, tsv media #%2$d, page %3$d, word %4$s.', // @translate
+                                    $this->item->id(), $this->mediaTsv ? $this->mediaTsv->id() : '-', reset($pages) + 1, $this->query
+                                ));
+                                $indexQueryWord = 0;
+                                $currentExpression = [];
+                                continue 2;
+                            }
+                            $zones['left'][] = $left;
+                            $zones['top'][] = $top;
+                            $zones['right'][] = $left + $width;
+                            $zones['bottom'][] = $top + $height;
+                        }
+                        // When a string is on multiple lines, so when a next
+                        // left or a next top is greater than the previous one,
+                        // display by word.
+                        if (min($zones['left']) !== reset($zones['left'])
+                            // TODO Check top, but the box may be greater and on the same line, according to bigger letters.
+                            // TODO Manage rtl languages.
+                            // || min($zones['top']) !== reset($zones['top'])
+                        ) {
+                            $expressionPositions[] = $currentExpression;
+                        } else {
+                            $wholeExpression = [
+                                $this->query,
+                                reset($pages),
+                                min($zones['left'])
+                                    . ',' . min($zones['top'])
+                                    . ',' . (max($zones['right']) - min($zones['left']))
+                                    . ',' . (max($zones['bottom']) - min($zones['top']))
+                            ];
+                            $expressionPositions[] = [$wholeExpression];
+                        }
+                    } else {
+                        $expressionPositions[] = $currentExpression;
+                    }
+                    $indexQueryWord = 0;
+                    $currentExpression = [];
+                }
+            }
+
+            if (!count($expressionPositions)) {
+                return null;
+            }
+
+            $wordPositions = [$this->query => array_merge(...$expressionPositions)];
+        } else {
+            // Search each word ("OR").
+            // In tsv, the words are more cleaned than xml during extract ocr process.
+            $queryWordsByWords = [];
+            foreach ($this->queryWords as $queryWord) {
+                $word = $this->normalize($queryWord);
+                $word = mb_strtolower($word, 'UTF-8');
+                $queryWordsByWords[$word] = $word;
+            }
+
+            $wordPositions = [];
+            if ($isTsvByWord) {
+                while (($data = fgetcsv($handle, 1000000, "\t", chr(0), chr(0))) !== false) {
+                    if (isset($queryWordsByWords[$data[0]])) {
+                        $wordPositions[$data[0]] = $data[1];
+                    }
+                }
+            } else {
+                while (($data = fgetcsv($handle, 1000000, "\t", chr(0), chr(0))) !== false) {
+                    $word = mb_strtolower($data[0], 'UTF-8');
+                    if (isset($queryWordsByWords[$word])) {
+                        $wordPositions[$word][] = [$data[1], $data[2]];
+                    }
+                }
+            }
+
+            if (!count($wordPositions)) {
+                return null;
             }
         }
 
-        // In tsv, the words are more cleaned than xml during extract ocr process.
-        $queryWordsByWords = [];
-        foreach ($queryWords as $queryWord) {
-            $word = $this->normalize($queryWord);
-            $word = mb_strtolower($word, 'UTF-8');
-            $queryWordsByWords[$word] = $word;
-        }
-
-        $wordPositions = array_intersect_key($wordPositions, $queryWordsByWords);
-        if (!count($wordPositions)) {
-            return null;
-        }
-
-        // TODO Manage multiple terms in search (OR): requires a tsv file formatted with one row by word, so set an option in ExtractOcr.
-        /*
-        $search = [];
-        $tok = strtok($query, ' ');
-        while ($tok !== false) {
-            $search[] = $tok;
-            $tok = strtok(' ');
-        }
-        */
+        // TODO Seach all words ("AND") but not an expression (require +).
 
         $result = [
             'resources' => [],
@@ -627,6 +751,9 @@ class IiifSearch extends AbstractHelper
                     if ($isTsvByWord) {
                         $pageIndex = strtok($pageAndPosition, ':');
                         $zone['left'] = strtok(',');
+                    } elseif ($processExactSearch) {
+                        $pageIndex = $pageAndPosition[1];
+                        $zone['left'] = strtok($pageAndPosition[2], ',');
                     } else {
                         $pageIndex = $pageAndPosition[0];
                         $zone['left'] = strtok($pageAndPosition[1], ',');
@@ -745,16 +872,16 @@ class IiifSearch extends AbstractHelper
      * ]
      * ```
      */
-    protected function searchMediaValues(string $query, int $hit, array $iiifMediaIds = []): ?array
+    protected function searchMediaValues(int $hit, array $iiifMediaIds = []): ?array
     {
-        if (!strlen($query)) {
+        if (!strlen($this->query)) {
             return null;
         }
 
         // Only media is needed.
         $mediaQuery = [
             'item_id' => $this->item->id(),
-            'fulltext_search' => $query,
+            'fulltext_search' => $this->query,
             // Position is not supported before v4.1.
             'sort_by' => version_compare(\Omeka\Module::VERSION, '4.1.0', '<') ? 'id' : 'position',
             'sort_order' => 'asc',
@@ -839,7 +966,7 @@ class IiifSearch extends AbstractHelper
      *
      * An option allows to force the matching of files (order or filename).
      */
-    protected function prepareSearch(): bool
+    protected function prepareSearchIndexAndImages(): bool
     {
         $this->index = null;
         $this->mediaXml = [];
@@ -847,6 +974,17 @@ class IiifSearch extends AbstractHelper
         $this->indexFilePath = null;
 
         $this->prepareSearchOrder();
+
+        // When the two tsv formats are available and the query is not an exact
+        // search, use the by-word format. For exact search, use the full format
+        // if available.
+        if ($this->queryIsExactSearch) {
+            $tsvByWord = $this->supportedIndexes['text/tab-separated-values;by-word'];
+            unset($this->supportedIndexes['text/tab-separated-values;by-word']);
+            $this->supportedIndexes['text/tab-separated-values;by-word'] = $tsvByWord;
+        } else {
+            $this->supportedIndexes = array_replace(['text/tab-separated-values;by-word' => null], $this->supportedIndexes);
+        }
 
         // Check for local files first.
         foreach ($this->supportedIndexes as $supportedIndex => $data) {
@@ -989,12 +1127,35 @@ class IiifSearch extends AbstractHelper
      *
      * The same word can be set multiple times in the same query.
      */
-    protected function formatQuery($query): array
+    protected function prepareAndFormatQueryByWord(): array
     {
         $minimumQueryLength = $this->view->setting('iiifsearch_minimum_query_length')
             ?: $this->minimumQueryLength;
 
-        $cleanQuery = $this->alnumString($query);
+        // TODO Manage a single word + an expression.
+
+        // TODO Should we use alnumSring() here too?
+        // No cleaning for exact search, except spaces.
+        if ($this->queryIsExactSearch
+            // Tsv By word does not support exact search.
+            && $this->index !== 'text/tab-separated-values;by-word'
+        ) {
+            if (mb_strlen($this->query) < $minimumQueryLength) {
+                return [];
+            }
+            // Store each word separately to check if they are stored in the
+            // right order.
+            $queryWords = explode(' ', $this->query);
+            foreach ($queryWords as $queryWord) {
+                $quotedQueryWords[] = preg_quote($queryWord, '/');
+            }
+            if (count($queryWords) > 1) {
+                $quotedQueryWords['full'] = preg_quote($this->query, '/');
+            }
+            return $quotedQueryWords;
+        }
+
+        $cleanQuery = $this->alnumString($this->query);
         if (mb_strlen($cleanQuery) < $minimumQueryLength) {
             return [];
         }
@@ -1013,7 +1174,7 @@ class IiifSearch extends AbstractHelper
             }
         }
         if (count($quotedQueryWords) > 1) {
-            $quotedQueryWords[] = preg_quote(implode(' ', $queryWords), '/');
+            $quotedQueryWords['full'] = preg_quote(implode(' ', $queryWords), '/');
         }
         return array_unique($quotedQueryWords);
     }
