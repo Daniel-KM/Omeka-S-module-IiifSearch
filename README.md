@@ -68,11 +68,13 @@ Viewers
 TODO
 ----
 
-- [ ] Implement API Search v2.
+- [ ] Implement API Search v1.
+- [x] Implement API Search v2.
 - [ ] Add a distinct route for v0, v1 and v2.
 - [ ] Auto complete.
-- [ ] Store data (word positions) as media data or item data or in a specific table or in Solr to speed up queries, in particular when alto are many. Use pdftotext -tsv for a simpler process.
-- [ ] Fix utf8 issues with dom.
+- [x] Store data (word positions) as media data or item data or in a specific table or in Solr to speed up queries, in particular when alto are many. Use pdftotext -tsv for a simpler process.
+- [x] Fix utf8 issues with dom.
+- [ ] Search words with "+" (AND).
 
 
 Troubleshooting
