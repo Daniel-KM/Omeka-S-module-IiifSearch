@@ -22,10 +22,31 @@ class IiifSearch extends AbstractHelper
     /**
      * @var array
      */
-    protected $supportedMediaTypes = [
-        'application/alto+xml',
-        'application/vnd.pdf2xml+xml',
-        'text/tab-separated-values',
+    protected $supportedIndexes = [
+        'text/tab-separated-values' => [
+            'dir' => 'iiif-search',
+            'extension' => 'full.tsv',
+            'media_type' => 'text/tab-separated-values',
+            'short_extension' => 'tsv',
+        ],
+        'text/tab-separated-values;by-word' => [
+            'dir' => 'iiif-search',
+            'extension' => 'by-word.tsv',
+            'media_type' => 'text/tab-separated-values',
+            'short_extension' => 'tsv',
+        ],
+        'application/vnd.pdf2xml+xml' => [
+            'dir' => 'pdf2xml',
+            'extension' => 'pdf2xml.xml',
+            'media_type' => 'application/vnd.pdf2xml+xml',
+            'short_extension' => 'xml',
+        ],
+        'application/alto+xml' => [
+            'dir' => 'alto',
+            'extension' => 'alto.xml',
+            'media_type' => 'application/alto+xml',
+            'short_extension' => 'xml',
+        ],
     ];
 
     /**
@@ -86,6 +107,21 @@ class IiifSearch extends AbstractHelper
     protected $xmlImageMatch;
 
     /**
+     * @var array
+     */
+    protected $imageSizes;
+
+    /**
+     * @var string|null
+     */
+    protected $index;
+
+    /**
+     * @var string|null
+     */
+    protected $indexFilePath;
+
+    /**
      * @var ItemRepresentation
      */
     protected $item;
@@ -104,21 +140,6 @@ class IiifSearch extends AbstractHelper
      * @var \Omeka\Api\Representation\MediaRepresentation
      */
     protected $mediaXmlFirst;
-
-    /**
-     * @var array
-     */
-    protected $imageSizes;
-
-    /**
-     * @var string
-     */
-    protected $mediaType;
-
-    /**
-     * @var string|null
-     */
-    protected $simpleFilepath;
 
     public function __construct(
         ApiManager $api,
@@ -249,17 +270,20 @@ class IiifSearch extends AbstractHelper
             return null;
         }
 
-        if ($this->mediaType === 'text/tab-separated-values') {
-            $filepath = $this->simpleFilepath ?: $this->basePath . '/original/' . $this->mediaTsv->filename();
-            return $this->searchFullTextTsv($filepath, $queryWords);
+        if ($this->index === 'text/tab-separated-values') {
+            $filepath = $this->indexFilePath ?: $this->basePath . '/original/' . $this->mediaTsv->filename();
+            return $this->searchFullTextTsv($filepath, $queryWords, false);
+        } elseif ($this->index === 'text/tab-separated-values;by-word') {
+            $filepath = $this->indexFilePath ?: $this->basePath . '/original/' . $this->mediaTsv->filename();
+            return $this->searchFullTextTsv($filepath, $queryWords, true);
         }
 
         $xml = $this->loadXml();
         if (empty($xml)) {
             return null;
-        } elseif ($this->mediaType === 'application/alto+xml') {
+        } elseif ($this->index === 'application/alto+xml') {
             return $this->searchFullTextAlto($xml, $queryWords);
-        } elseif ($this->mediaType === 'application/vnd.pdf2xml+xml') {
+        } elseif ($this->index === 'application/vnd.pdf2xml+xml') {
             return $this->searchFullTextPdfXml($xml, $queryWords);
         } else {
             return null;
@@ -526,7 +550,7 @@ class IiifSearch extends AbstractHelper
         return $result;
     }
 
-    protected function searchFulltextTsv(string $filepath, array $queryWords) :?array
+    protected function searchFulltextTsv(string $filepath, array $queryWords, bool $isTsvByWord) :?array
     {
         // Extract whole tsv.
         $handle = fopen($filepath, 'r');
@@ -539,8 +563,15 @@ class IiifSearch extends AbstractHelper
         }
 
         $wordPositions = [];
-        while (($data = fgetcsv($handle, 1000000, "\t", chr(0), chr(0))) !== false) {
-            $wordPositions[$data[0]] = $data[1];
+        if ($isTsvByWord) {
+            while (($data = fgetcsv($handle, 1000000, "\t", chr(0), chr(0))) !== false) {
+                $wordPositions[$data[0]] = $data[1];
+            }
+        } else {
+            while (($data = fgetcsv($handle, 1000000, "\t", chr(0), chr(0))) !== false) {
+                $word = mb_strtolower($data[0], 'UTF-8');
+                $wordPositions[$word][] = [$data[1], $data[2]];
+            }
         }
 
         // In tsv, the words are more cleaned than xml during extract ocr process.
@@ -564,7 +595,7 @@ class IiifSearch extends AbstractHelper
             $search[] = $tok;
             $tok = strtok(' ');
         }
-         */
+        */
 
         $result = [
             'resources' => [],
@@ -589,12 +620,17 @@ class IiifSearch extends AbstractHelper
             $results = [];
 
             // All words are already found.
-            foreach ($wordPositions as $chars => $positions) {
+            foreach ($wordPositions as $chars => $wordData) {
                 $zone = [];
                 $zone['text'] = $chars;
-                foreach (explode(';', $positions) as $position) {
-                    $pageIndex = strtok($position, ':');
-                    $zone['left'] = strtok(',');
+                foreach ($isTsvByWord ? explode(';', $wordData) : $wordData as $pageAndPosition) {
+                    if ($isTsvByWord) {
+                        $pageIndex = strtok($pageAndPosition, ':');
+                        $zone['left'] = strtok(',');
+                    } else {
+                        $pageIndex = $pageAndPosition[0];
+                        $zone['left'] = strtok($pageAndPosition[1], ',');
+                    }
                     $zone['top'] = strtok(',');
                     $zone['width'] = strtok(',');
                     $zone['height'] = strtok(',');
@@ -805,41 +841,29 @@ class IiifSearch extends AbstractHelper
      */
     protected function prepareSearch(): bool
     {
+        $this->index = null;
         $this->mediaXml = [];
         $this->imageSizes = [];
+        $this->indexFilePath = null;
 
         $this->prepareSearchOrder();
 
-        $this->simpleFilepath = $this->basePath . '/iiif-search/' . $this->item->id() . '.tsv';
-        if (file_exists($this->simpleFilepath)) {
-            $this->mediaType = 'text/tab-separated-values';
-            return true;
-        } else {
-            // Normally, it is useless to prepare a quick search file as xml.
-            // The precise media-type is set later.
-            $this->simpleFilepath = $this->basePath . '/pdf2xml/' . $this->item->id() . '.xml';
-            if (file_exists($this->simpleFilepath)) {
-                $this->mediaType = 'application/vnd.pdf2xml+xml';
-                return true;
-            }
-            $this->simpleFilepath = $this->basePath . '/alto/' . $this->item->id() . '.alto.xml';
-            if (file_exists($this->simpleFilepath)) {
-                $this->mediaType = 'application/alto+xml';
-                return true;
-            }
-            // For compatibility with previous version. To be removed.
-            $this->simpleFilepath = $this->basePath . '/iiif-search/' . $this->item->id() . '.xml';
-            if (file_exists($this->simpleFilepath)) {
-                $this->mediaType = 'application/xml';
+        // Check for local files first.
+        foreach ($this->supportedIndexes as $supportedIndex => $data) {
+            $filepath = $this->basePath . '/' . $data['dir'] . '/' . $this->item->id() . '.' . $data['extension'];
+            if (file_exists($filepath)) {
+                $this->index = $supportedIndex;
+                $this->indexFilePath = $filepath;
                 return true;
             }
         }
-        $this->simpleFilepath = null;
+
+        // Check for media files.
 
         $this->mediaXmlFirst = count($this->mediaXml) ? reset($this->mediaXml) : null;
 
         if ($this->mediaTsv) {
-            $this->mediaType = 'text/tab-separated-values';
+            $this->index = 'text/tab-separated-values';
             return true;
         }
 
@@ -859,14 +883,22 @@ class IiifSearch extends AbstractHelper
 
     protected function prepareSearchOrder(): self
     {
+        // Currently, only tsv and xml indexes are supported.
+
+        $supportedXmlMediaTypes = [
+            'application/vnd.pdf2xml+xml',
+            'application/alto+xml',
+        ];
+
         foreach ($this->item->media() as $media) {
             $mediaId = $media->id();
             $mediaType = $media->mediaType();
             if ($mediaType === 'text/tab-separated-values') {
+                $this->index = mb_substr((string) $media->source(), -12) === '.by-word.tsv'
+                    ? 'text/tab-separated-values;by-word'
+                    : 'text/tab-separated-values' ;
                 $this->mediaTsv = $media;
-                $this->mediaType = 'text/tab-separated-values';
-            } elseif (in_array($mediaType, $this->supportedMediaTypes)) {
-                // The supported media types are only xml here.
+            } elseif (in_array($mediaType, $supportedXmlMediaTypes)) {
                 $this->mediaXml[] = $media;
             } elseif ($mediaType === 'text/xml' || $mediaType === 'application/xml') {
                 $this->logger->warn(new Message(
@@ -998,8 +1030,8 @@ class IiifSearch extends AbstractHelper
      */
     protected function loadXml(): ?SimpleXMLElement
     {
-        if ($this->simpleFilepath) {
-            return $this->loadXmlFromFilepath($this->simpleFilepath, null);
+        if ($this->indexFilePath) {
+            return $this->loadXmlFromFilepath($this->indexFilePath, null);
         }
 
         if (!$this->mediaXmlFirst) {
@@ -1007,11 +1039,14 @@ class IiifSearch extends AbstractHelper
         }
 
         // The media type is already checked.
-        $this->mediaType = $this->mediaXmlFirst->mediaType();
+        // For xml, the type is the same than the media type.
+        $this->index = $this->mediaXmlFirst->mediaType();
 
         $toCache = false;
         // Merge all xml
-        if ($this->mediaType === 'application/alto+xml' && count($this->mediaXml) > 1) {
+        if ($this->index === 'application/alto+xml'
+            && count($this->mediaXml) > 1
+        ) {
             // Check if the file is cached via module DerivativeMedia.
             if ($this->derivativeList) {
                 $derivative = $this->derivativeList->__invoke($this->item, ['type' => 'alto']);
@@ -1071,7 +1106,7 @@ class IiifSearch extends AbstractHelper
             ? $this->basePath . '/original/' . $filename
             : $this->mediaXmlFirst->originalUrl();
 
-        $isPdf2Xml = $this->mediaType === 'application/vnd.pdf2xml+xml';
+        $isPdf2Xml = $this->index === 'application/vnd.pdf2xml+xml';
 
         return $this->loadXmlFromFilepath($filepath, $isPdf2Xml);
     }
