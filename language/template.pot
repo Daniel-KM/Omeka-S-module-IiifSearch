@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2024-02-05 00:00+0000\n"
+"POT-Creation-Date: 2025-04-28 00:00+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,61 +17,78 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: src/Controller/SearchController.php:24
+#: Module.php:223
+#, php-format
+msgid "The module %1$s should be upgraded to version %2$s or later."
+msgstr ""
+
+#: src/Controller/SearchController.php:20
+#: src/Controller/SearchController.php:29
 msgid "Missing or empty query."
 msgstr ""
 
-#: src/Controller/SearchController.php:38
+#: src/Controller/SearchController.php:48
+msgid "Resource not found or unavailable."
+msgstr ""
+
+#: src/Controller/SearchController.php:59
 #, php-format
 msgid ""
 "Search is not supported for resource #%d (missing XML and/or image files)."
 msgstr ""
 
-#: src/Controller/SearchController.php:51
+#: src/Controller/SearchController.php:72
 msgid "Direct request to annotation-list is not implemented."
 msgstr ""
 
-#: data/scripts/upgrade.php:32
+#: data/scripts/upgrade.php:44
 msgid ""
 "XML Alto is supported natively: just upload the files as media to search "
 "inside it."
 msgstr ""
 
-#: data/scripts/upgrade.php:36
+#: data/scripts/upgrade.php:48
 msgid ""
 "The xml media-type should be a precise one: either \"application/alto+xml\" "
 "or \"application/vnd.pdf2xml+xml\", not \"text/xml\" or \"application/xml\"."
 msgstr ""
 
-#: data/scripts/upgrade.php:40
+#: data/scripts/upgrade.php:52
 msgid ""
 "New files are automatically managed, but you may need modules Bulk Edit or "
 "Easy Admin to fix old ones, if any."
 msgstr ""
 
-#: data/scripts/upgrade.php:44
+#: data/scripts/upgrade.php:56
 #, php-format
 msgid ""
 "Badly formatted xml files may be fixed dynamically, but it will affect "
 "performance. See %1$sreadme%2$s."
 msgstr ""
 
-#: data/scripts/upgrade.php:56
+#: data/scripts/upgrade.php:68
 msgid ""
 "A new option allows to include media metadata in search, not only full text."
 msgstr ""
 
-#: data/scripts/upgrade.php:60
+#: data/scripts/upgrade.php:72
 msgid "A new option allows to fix bad xml and invalid utf-8 characters."
 msgstr ""
 
-#: data/scripts/upgrade.php:67
+#: data/scripts/upgrade.php:79
 msgid ""
 "The module supports the tsv format for quicker search results. See module "
 "Extract OCR."
 msgstr ""
 
-#: Module.php:94 Module.php:107 Module.php:114
+#: data/scripts/upgrade.php:86
+msgid ""
+"The module allows to do an exact search when the input is wrapped with "
+"double quotes. If wanted and if you use a tsv index, a reindexation with "
+"ExtractOcr is needed."
+msgstr ""
+
+#: Module.php:107 Module.php:119 Module.php:126
 msgid "Search within this manifest"
 msgstr ""
 
@@ -100,54 +117,54 @@ msgid ""
 "searched quickly."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:313
+#: src/View/Helper/IiifSearch.php:368
 #, php-format
 msgid "Incomplete data for xml file from item #%1$s, page %2$s."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:324 src/View/Helper/IiifSearch.php:351
+#: src/View/Helper/IiifSearch.php:379 src/View/Helper/IiifSearch.php:406
 #, php-format
 msgid "Inconsistent data for xml file from item #%1$s, page %2$s."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:384
+#: src/View/Helper/IiifSearch.php:439
 #, php-format
 msgid "Error: XML alto content may be invalid for item #%1$d, index #%2$d."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:434
+#: src/View/Helper/IiifSearch.php:489
 #, php-format
 msgid "Incomplete data for xml file from pdf media #%1$s, page %2$s."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:444
+#: src/View/Helper/IiifSearch.php:499
 #, php-format
 msgid "Inconsistent data for xml file from pdf media #%1$s, page %2$s."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:472
+#: src/View/Helper/IiifSearch.php:528
 #, php-format
 msgid ""
 "Inconsistent data for xml file from pdf media #%1$s, page %2$s, row %3$s."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:505
+#: src/View/Helper/IiifSearch.php:566
 #, php-format
 msgid "Error: PDF to XML conversion failed for item #%1$d, media file #%2$d."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:522 src/View/Helper/IiifSearch.php:653
+#: src/View/Helper/IiifSearch.php:583 src/View/Helper/IiifSearch.php:835
 #, php-format
 msgid "Error: PDF to TSV conversion failed for item #%1$d, media #%2$d."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:590
+#: src/View/Helper/IiifSearch.php:646 src/View/Helper/IiifSearch.php:767
 #, php-format
 msgid ""
 "Inconsistent data for item #%1$d, tsv media #%2$d, page %3$d, word %4$s."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:822
+#: src/View/Helper/IiifSearch.php:1043
 #, php-format
 msgid ""
 "Warning: Xml format \"%1$s\" of media #%2$d is not precise. It may be "
@@ -155,17 +172,27 @@ msgid ""
 "type."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:1058 src/View/Helper/XmlAltoSingle.php:158
+#: src/View/Helper/IiifSearch.php:1318
+#, php-format
+msgid "Error: XML content is incorrect for item #%d."
+msgstr ""
+
+#: src/View/Helper/IiifSearch.php:1323 src/View/Helper/XmlAltoSingle.php:159
 #, php-format
 msgid "Error: XML content is incorrect for media #%d."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:1066 src/View/Helper/XmlAltoSingle.php:166
+#: src/View/Helper/IiifSearch.php:1333
+#, php-format
+msgid "Error: XML content seems empty for item #%d."
+msgstr ""
+
+#: src/View/Helper/IiifSearch.php:1338 src/View/Helper/XmlAltoSingle.php:167
 #, php-format
 msgid "Error: XML content seems empty for media #%d."
 msgstr ""
 
-#: src/View/Helper/XmlAltoSingle.php:227
+#: src/View/Helper/XmlAltoSingle.php:228
 #, php-format
 msgid "Error: Cannot get XML content from media #%d."
 msgstr ""
@@ -204,7 +231,7 @@ msgstr ""
 msgid "Via regex (slow)"
 msgstr ""
 
-#: src/Iiif/AbstractSimpleType.php:150
+#: src/Iiif/AbstractSimpleType.php:151
 #, php-format
 msgid "Missing required keys for object type \"%1$s\": \"%2$s\"."
 msgstr ""
