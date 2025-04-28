@@ -14,6 +14,7 @@ use Laminas\View\Helper\AbstractHelper;
 use Omeka\Api\Manager as ApiManager;
 use Omeka\Api\Representation\ItemRepresentation;
 use Omeka\Api\Representation\MediaRepresentation;
+use Omeka\Stdlib\Message;
 use SimpleXMLElement;
 
 class IiifSearch extends AbstractHelper
@@ -120,27 +121,27 @@ class IiifSearch extends AbstractHelper
     protected $simpleFilepath;
 
     public function __construct(
-        Logger $logger,
         ApiManager $api,
-        FixUtf8 $fixUtf8,
-        XmlAltoSingle $xmlAltoSingle,
-        ?ImageSize $imageSize,
         ?DerivativeList $derivativeList,
+        FixUtf8 $fixUtf8,
+        ?ImageSize $imageSize,
+        Logger $logger,
+        XmlAltoSingle $xmlAltoSingle,
         string $basePath,
         bool $searchMediaValues,
-        string $xmlImageMatch,
-        string $xmlFixMode
+        string $xmlFixMode,
+        string $xmlImageMatch
     ) {
-        $this->logger = $logger;
         $this->api = $api;
-        $this->fixUtf8 = $fixUtf8;
-        $this->xmlAltoSingle = $xmlAltoSingle;
-        $this->imageSize = $imageSize;
         $this->derivativeList = $derivativeList;
+        $this->fixUtf8 = $fixUtf8;
+        $this->imageSize = $imageSize;
+        $this->logger = $logger;
+        $this->xmlAltoSingle = $xmlAltoSingle;
         $this->basePath = $basePath;
         $this->searchMediaValues = $searchMediaValues;
-        $this->xmlImageMatch = $xmlImageMatch;
         $this->xmlFixMode = $xmlFixMode;
+        $this->xmlImageMatch = $xmlImageMatch;
     }
 
     /**
@@ -160,8 +161,10 @@ class IiifSearch extends AbstractHelper
 
         $view = $this->getView();
 
-        $response = new AnnotationList;
-        $response->initOptions(['requestUri' => $view->serverUrl(true)]);
+        $response = new AnnotationList();
+        $response->initOptions([
+            'requestUri' => $view->serverUrl(true),
+        ]);
 
         $query = trim((string) $view->params()->fromQuery('q'));
 
@@ -247,9 +250,7 @@ class IiifSearch extends AbstractHelper
         }
 
         if ($this->mediaType === 'text/tab-separated-values') {
-            $filepath = $this->simpleFilepath
-                ? $this->simpleFilepath
-                : $this->basePath . '/original/' . $this->mediaTsv->filename();
+            $filepath = $this->simpleFilepath ?: $this->basePath . '/original/' . $this->mediaTsv->filename();
             return $this->searchFullTextTsv($filepath, $queryWords);
         }
 
@@ -316,9 +317,9 @@ class IiifSearch extends AbstractHelper
                 $page['width'] = (string) @$attributes->WIDTH;
                 $page['height'] = (string) @$attributes->HEIGHT;
                 if (!$page['width'] || !$page['height']) {
-                    $this->logger->warn(sprintf(
+                    $this->logger->warn(new Message(
                         'Incomplete data for xml file from item #%1$s, page %2$s.', // @translate
-                        $this->mediaXmlFirst->item()->id(), $indexPageXml + 1
+                        $this->item->id(), $indexPageXml + 1
                     ));
                     continue;
                 }
@@ -327,9 +328,9 @@ class IiifSearch extends AbstractHelper
                 // Should be the same than index.
                 $pageIndex = $page['number'] - 1;
                 if ($pageIndex !== $indexPageXml) {
-                    $this->logger->warn(sprintf(
+                    $this->logger->warn(new Message(
                         'Inconsistent data for xml file from item #%1$s, page %2$s.', // @translate
-                        $this->mediaXmlFirst->item()->id(), $indexPageXml + 1
+                        $this->item->id(), $indexPageXml + 1
                     ));
                     continue;
                 }
@@ -354,9 +355,9 @@ class IiifSearch extends AbstractHelper
                             $zone['width'] = (string) @$attributes->WIDTH;
                             $zone['height'] = (string) @$attributes->HEIGHT;
                             if (!strlen($zone['top']) || !strlen($zone['left']) || !$zone['width'] || !$zone['height']) {
-                                $this->logger->warn(sprintf(
+                                $this->logger->warn(new Message(
                                     'Inconsistent data for xml file from item #%1$s, page %2$s.', // @translate
-                                    $this->mediaXmlFirst->item()->id(), $indexPageXml + 1
+                                    $this->item->id(), $indexPageXml + 1
                                 ));
                                 continue;
                             }
@@ -365,7 +366,7 @@ class IiifSearch extends AbstractHelper
 
                             $image = $this->imageSizes[$pageIndex];
 
-                            $searchResult = new AnnotationSearchResult;
+                            $searchResult = new AnnotationSearchResult();
                             $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
                             $result['resources'][] = $searchResult->setResult(compact('resource', 'image', 'page', 'zone', 'chars', 'hit'));
                             $result['media_ids'][] = $image['id'];
@@ -380,16 +381,16 @@ class IiifSearch extends AbstractHelper
 
                 // Add hits per page.
                 if ($hits) {
-                    $searchHit = new SearchHit;
+                    $searchHit = new SearchHit();
                     $searchHit['annotations'] = $hits;
                     $searchHit['match'] = implode(' ', array_unique($hitMatches));
                     $result['hits'][] = $searchHit;
                 }
             }
         } catch (\Exception $e) {
-            $this->logger->err(sprintf(
+            $this->logger->err(new Message(
                 'Error: XML alto content may be invalid for item #%1$d, index #%2$d.', // @translate
-                $this->mediaXmlFirst->item()->id(), $indexPageXml + 1
+                $this->item->id(), $indexPageXml + 1
             ));
             return null;
         }
@@ -437,7 +438,7 @@ class IiifSearch extends AbstractHelper
                 $page['width'] = (string) @$attributes->width;
                 $page['height'] = (string) @$attributes->height;
                 if (!strlen($page['number']) || !strlen($page['width']) || !strlen($page['height'])) {
-                    $this->logger->warn(sprintf(
+                    $this->logger->warn(new Message(
                         'Incomplete data for xml file from pdf media #%1$s, page %2$s.', // @translate
                         $this->mediaXmlFirst->id(), $indexPageXml + 1
                     ));
@@ -447,7 +448,7 @@ class IiifSearch extends AbstractHelper
                 // Should be the same than index.
                 $pageIndex = $page['number'] - 1;
                 if ($pageIndex !== $indexPageXml) {
-                    $this->logger->warn(sprintf(
+                    $this->logger->warn(new Message(
                         'Inconsistent data for xml file from pdf media #%1$s, page %2$s.', // @translate
                         $this->mediaXmlFirst->id(), $indexPageXml + 1
                     ));
@@ -475,7 +476,7 @@ class IiifSearch extends AbstractHelper
                             $zone['width'] = (string) @$attributes->width;
                             $zone['height'] = (string) @$attributes->height;
                             if (!strlen($zone['top']) || !strlen($zone['left']) || !$zone['width'] || !$zone['height']) {
-                                $this->logger->warn(sprintf(
+                                $this->logger->warn(new Message(
                                     'Inconsistent data for xml file from pdf media #%1$s, page %2$s, row %3$s.', // @translate
                                     $this->mediaXmlFirst->id(), $indexPageXml + 1, $indexXmlLine + 1
                                 ));
@@ -491,7 +492,7 @@ class IiifSearch extends AbstractHelper
                                 'height' => null,
                             ];
 
-                            $searchResult = new AnnotationSearchResult;
+                            $searchResult = new AnnotationSearchResult();
                             $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
                             $result['resources'][] = $searchResult->setResult(compact('resource', 'image', 'page', 'zone', 'chars', 'hit'));
                             $result['media_ids'][] = $image['id'];
@@ -506,16 +507,16 @@ class IiifSearch extends AbstractHelper
 
                 // Add hits per page.
                 if ($hits) {
-                    $searchHit = new SearchHit;
+                    $searchHit = new SearchHit();
                     $searchHit['annotations'] = $hits;
                     $searchHit['match'] = implode(' ', array_unique($hitMatches));
                     $result['hits'][] = $searchHit;
                 }
             }
         } catch (\Exception $e) {
-            $this->logger->err(sprintf(
+            $this->logger->err(new Message(
                 'Error: PDF to XML conversion failed for item #%1$d, media file #%2$d.', // @translate
-                $this->mediaXmlFirst->item()->id(), $this->mediaXmlFirst->id()
+                $this->item->id(), $this->mediaXmlFirst->id()
             ));
             return null;
         }
@@ -525,14 +526,14 @@ class IiifSearch extends AbstractHelper
         return $result;
     }
 
-    protected function searchFulltextTsv($file, $queryWords) :?array
+    protected function searchFulltextTsv(string $filepath, array $queryWords) :?array
     {
         // Extract whole tsv.
-        $handle = fopen($file, 'r');
+        $handle = fopen($filepath, 'r');
         if ($handle === false) {
-            $this->logger->err(sprintf(
+            $this->logger->err(new Message(
                 'Error: PDF to TSV conversion failed for item #%1$d, media #%2$d.', // @translate
-                $this->item->id(), $this->mediaTsv->id()
+                $this->item->id(), $this->mediaTsv ? $this->mediaTsv->id() : '-'
             ));
             return null;
         }
@@ -545,7 +546,8 @@ class IiifSearch extends AbstractHelper
         // In tsv, the words are more cleaned than xml during extract ocr process.
         $queryWordsByWords = [];
         foreach ($queryWords as $queryWord) {
-            $word = $this->slugify($queryWord);
+            $word = $this->normalize($queryWord);
+            $word = mb_strtolower($word, 'UTF-8');
             $queryWordsByWords[$word] = $word;
         }
 
@@ -598,9 +600,9 @@ class IiifSearch extends AbstractHelper
                     $zone['height'] = strtok(',');
 
                     if (!strlen($zone['top']) || !strlen($zone['left']) || !$zone['width'] || !$zone['height']) {
-                        $this->logger->warn(sprintf(
+                        $this->logger->warn(new Message(
                             'Inconsistent data for item #%1$d, tsv media #%2$d, page %3$d, word %4$s.', // @translate
-                            $this->mediaTsv->item()->id(), $this->mediaTsv->id(), $indexPageTsv + 1, $chars
+                            $this->item->id(), $this->mediaTsv ? $this->mediaTsv->id() : '-', $indexPageTsv + 1, $chars
                         ));
                         continue;
                     }
@@ -649,7 +651,7 @@ class IiifSearch extends AbstractHelper
             foreach ($results as $pageIndex => $resultHits) {
                 $hits = [];
                 foreach ($resultHits as $hit => $resultHit) {
-                    $searchResult = new AnnotationSearchResult;
+                    $searchResult = new AnnotationSearchResult();
                     $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
                     $result['resources'][] = $searchResult->setResult($resultHit);
                     $result['media_ids'][] = $resultHit['image']['id'];
@@ -660,15 +662,16 @@ class IiifSearch extends AbstractHelper
                     $hitMatches[] = $resultHit['chars'];
                 }
 
-                $searchHit = new SearchHit;
+                $searchHit = new SearchHit();
                 $searchHit['annotations'] = $hits;
                 $searchHit['match'] = implode(' ', array_unique($hitMatches));
                 $result['hits'][] = $searchHit;
             }
         } catch (\Exception $e) {
-            $this->logger->err(sprintf(
+            $this->logger->err(new Message(
                 'Error: PDF to TSV conversion failed for item #%1$d, media #%2$d.', // @translate
-                $this->mediaTsv->item()->id(), $this->mediaTsv->id()
+                $this->item->id(),
+                $this->mediaTsv ? $this->mediaTsv->id() : '-'
             ));
             return null;
         }
@@ -774,7 +777,7 @@ class IiifSearch extends AbstractHelper
                 'width' => $image['width'],
                 'height' => $image['height'],
             ];
-            $searchResult = new AnnotationSearchResult;
+            $searchResult = new AnnotationSearchResult();
             $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
             $result['resources'][] = $searchResult->setResult(compact('resource', 'image', 'page', 'zone', 'chars', 'hit'));
         }
@@ -866,9 +869,9 @@ class IiifSearch extends AbstractHelper
                 // The supported media types are only xml here.
                 $this->mediaXml[] = $media;
             } elseif ($mediaType === 'text/xml' || $mediaType === 'application/xml') {
-                $this->logger->warn(
-                    sprintf('Warning: Xml format "%1$s" of media #%2$d is not precise. It may be related to a badly formatted file (%3$s). Use EasyAdmin tasks to fix media type.', // @translate
-                        $mediaType, $mediaId, $media->originalUrl()
+                $this->logger->warn(new Message(
+                    'Warning: Xml format "%1$s" of media #%2$d is not precise. It may be related to a badly formatted file (%3$s). Use EasyAdmin tasks to fix media type.', // @translate
+                    $mediaType, $mediaId, $media->originalUrl()
                 ));
                 $this->mediaXml[] = $media;
             } else {
@@ -966,19 +969,21 @@ class IiifSearch extends AbstractHelper
 
         $queryWords = explode(' ', $cleanQuery);
         if (count($queryWords) === 1) {
-            return [preg_quote($queryWords[0], '/')];
+            return [
+                preg_quote($queryWords[0], '/')
+            ];
         }
 
-        $chars = [];
+        $quotedQueryWords = [];
         foreach ($queryWords as $queryWord) {
             if (mb_strlen($queryWord) >= $minimumQueryLength) {
-                $chars[] = preg_quote($queryWord, '/');
+                $quotedQueryWords[] = preg_quote($queryWord, '/');
             }
         }
-        if (count($chars) > 1) {
-            $chars[] = preg_quote(implode(' ', $queryWords), '/');
+        if (count($quotedQueryWords) > 1) {
+            $quotedQueryWords[] = preg_quote(implode(' ', $queryWords), '/');
         }
-        return $chars;
+        return array_unique($quotedQueryWords);
     }
 
     /**
@@ -1113,12 +1118,12 @@ class IiifSearch extends AbstractHelper
             }
         } catch (\Exception $e) {
             if ($hasNoMedia || !$this->mediaXmlFirst) {
-                $this->logger->err(sprintf(
+                $this->logger->err(new Message(
                     'Error: XML content is incorrect for item #%d.', // @translate
                     $this->item->id()
                 ));
             } else {
-                $this->logger->err(sprintf(
+                $this->logger->err(new Message(
                     'Error: XML content is incorrect for media #%d.', // @translate
                     $this->mediaXmlFirst->id()
                 ));
@@ -1128,12 +1133,12 @@ class IiifSearch extends AbstractHelper
 
         if (!$currentXml) {
             if ($hasNoMedia || !$this->mediaXmlFirst) {
-                $this->logger->err(sprintf(
+                $this->logger->err(new Message(
                     'Error: XML content seems empty for item #%d.', // @translate
                     $this->item->id()
                 ));
             } else {
-                $this->logger->err(sprintf(
+                $this->logger->err(new Message(
                     'Error: XML content seems empty for media #%d.', // @translate
                     $this->mediaXmlFirst->id()
                 ));
@@ -1212,23 +1217,25 @@ class IiifSearch extends AbstractHelper
     }
 
     /**
-     * Transform the given string into a valid URL slug
+     * Normalize a string as utf8.
+     *
+     * Should be the same normalization in IiifSearch and ExtractOcr.
+     *
+     * @todo Check if it is working for non-latin languages.
      *
      * @param string $input
      * @return string
      */
-    protected function slugify($input)
+    protected function normalize($input): string
     {
         if (extension_loaded('intl')) {
             $transliterator = \Transliterator::createFromRules(':: NFD; :: [:Nonspacing Mark:] Remove; :: NFC;');
-            $slug = $transliterator->transliterate($input);
+            $string = $transliterator->transliterate((string) $input);
         } elseif (extension_loaded('iconv')) {
-            $slug = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $input);
+            $string = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', (string) $input);
         } else {
-            $slug = $input;
+            $string = $input;
         }
-        $slug = mb_strtolower($slug, 'UTF-8');
-
-        return $slug;
+        return (string) $string;
     }
 }

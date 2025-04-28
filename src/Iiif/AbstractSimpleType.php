@@ -1,7 +1,7 @@
 <?php declare(strict_types=1);
 
 /*
- * Copyright 2020-2024 Daniel Berthereau
+ * Copyright 2020-2025 Daniel Berthereau
  *
  * This software is governed by the CeCILL license under French law and abiding
  * by the rules of distribution of free software. You can use, modify and/or
@@ -31,6 +31,7 @@ namespace IiifSearch\Iiif;
 
 use ArrayObject;
 use JsonSerializable;
+use Omeka\Stdlib\Message;
 
 /**
  * Manage the IIIF objects.
@@ -146,7 +147,7 @@ abstract class AbstractSimpleType extends ArrayObject implements JsonSerializabl
             if ($e) {
                 $message = $e->getMessage();
             } else {
-                $message = sprintf(
+                $message = new Message(
                     'Missing required keys for object type "%1$s": "%2$s".', // @translate
                     @$this['@type'], implode('", "', $missingKeys)
                 );

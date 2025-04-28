@@ -7,6 +7,7 @@ use Exception;
 use Laminas\Log\Logger;
 use Laminas\View\Helper\AbstractHelper;
 use Omeka\Api\Representation\ItemRepresentation;
+use Omeka\Stdlib\Message;
 use SimpleXMLElement;
 
 class XmlAltoSingle extends AbstractHelper
@@ -154,7 +155,7 @@ class XmlAltoSingle extends AbstractHelper
                 $currentXml = @simplexml_load_string($xmlContent);
             }
         } catch (Exception $e) {
-            $this->logger->err(sprintf(
+            $this->logger->err(new Message(
                 'Error: XML content is incorrect for media #%d.', // @translate
                 $resourceId ?: 0
             ));
@@ -162,7 +163,7 @@ class XmlAltoSingle extends AbstractHelper
         }
 
         if (!$currentXml) {
-            $this->logger->err(sprintf(
+            $this->logger->err(new Message(
                 'Error: XML content seems empty for media #%d.', // @translate
                 $resourceId ?: 0
             ));
@@ -223,7 +224,7 @@ class XmlAltoSingle extends AbstractHelper
         foreach ($mediaData as $fileData) {
             $currentXml = $this->loadXmlFromFilepath($fileData['filepath'], $fileData['id'] ?? null);
             if (!$currentXml) {
-                $this->logger->err(sprintf(
+                $this->logger->err(new Message(
                     'Error: Cannot get XML content from media #%d.', // @translate
                     $fileData['id']
                 ));
