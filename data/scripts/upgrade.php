@@ -11,17 +11,29 @@ use Omeka\Stdlib\Message;
  * @var string $oldVersion
  *
  * @var \Omeka\Api\Manager $api
+ * @var \Omeka\View\Helper\Url $url
+ * @var \Laminas\Log\Logger $logger
  * @var \Omeka\Settings\Settings $settings
+ * @var \Laminas\I18n\View\Helper\Translate $translate
  * @var \Doctrine\DBAL\Connection $connection
+ * @var \Laminas\Mvc\I18n\Translator $translator
  * @var \Doctrine\ORM\EntityManager $entityManager
+ * @var \Omeka\Settings\SiteSettings $siteSettings
  * @var \Omeka\Mvc\Controller\Plugin\Messenger $messenger
  */
 $plugins = $services->get('ControllerPluginManager');
+$url = $services->get('ViewHelperManager')->get('url');
 $api = $plugins->get('api');
+$logger = $services->get('Omeka\Logger');
 $settings = $services->get('Omeka\Settings');
+$translate = $plugins->get('translate');
+$translator = $services->get('MvcTranslator');
 $connection = $services->get('Omeka\Connection');
 $messenger = $plugins->get('messenger');
+$siteSettings = $services->get('Omeka\Settings\Site');
 $entityManager = $services->get('Omeka\EntityManager');
+
+$this->checkExtractOcr();
 
 if (version_compare($oldVersion, '1.1.0', '<')) {
     $settings->delete('iiifserver_manifest_service_iiifsearch');
@@ -65,6 +77,13 @@ if (version_compare($oldVersion, '3.4.4', '<')) {
 if (version_compare($oldVersion, '3.4.6', '<')) {
     $message = new Message(
         'The module supports the tsv format for quicker search results. See module Extract OCR.' // @translate
+    );
+    $messenger->addSuccess($message);
+}
+
+if (version_compare($oldVersion, '3.4.10', '<')) {
+    $message = new Message(
+        'The module allows to do an exact search when the input is wrapped with double quotes. If wanted and if you use a tsv index, a reindexation with ExtractOcr is needed.' // @translate
     );
     $messenger->addSuccess($message);
 }

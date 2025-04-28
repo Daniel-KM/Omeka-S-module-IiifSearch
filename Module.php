@@ -26,13 +26,6 @@ class Module extends AbstractModule
         $acl->allow(null, 'IiifSearch\Controller\Search');
     }
 
-    public function upgrade($oldVersion, $newVersion, ServiceLocatorInterface $services): void
-    {
-        $filepath = __DIR__ . '/data/scripts/upgrade.php';
-        $this->setServiceLocator($services);
-        require_once $filepath;
-    }
-
     public function attachListeners(SharedEventManagerInterface $sharedEventManager): void
     {
         $sharedEventManager->attach(
@@ -189,6 +182,8 @@ class Module extends AbstractModule
      */
     public function install(ServiceLocatorInterface $services): void
     {
+        $this->checkExtractOcr();
+
         $settings = $services->get('Omeka\Settings');
         $settings->set("iiifsearch_minimum_query_length", 3);
     }
@@ -202,5 +197,34 @@ class Module extends AbstractModule
     {
         $settings = $services->get('Omeka\Settings');
         $settings->delete("iiifsearch_minimum_query_length");
+    }
+
+    public function upgrade($oldVersion, $newVersion, ServiceLocatorInterface $services): void
+    {
+        $filepath = __DIR__ . '/data/scripts/upgrade.php';
+        $this->setServiceLocator($services);
+        require_once $filepath;
+    }
+
+    protected function checkExtractOcr()
+    {
+        if (class_exists('ExtractOcr\Module', false)) {
+            $services = $this->getServiceLocator();
+            $translator = $services->get('MvcTranslator');
+            $connection = $services->get('Omeka\Connection');
+            $qb = $connection->createQueryBuilder();
+            $qb
+                ->select('module.version')
+                ->from('module', 'module')
+                ->where($qb->expr()->eq('module.id', ':module'));
+            $moduleVersion = $connection->executeQuery($qb, ['module' => 'ExtractOcr'])->fetchOne();
+            if (version_compare($moduleVersion, '3.4.8', '<')) {
+                $message = new \Omeka\Stdlib\Message(
+                    $translator->translate('The module %1$s should be upgraded to version %2$s or later.'), // @translate
+                    'ExtractOcr', '3.4.8'
+                );
+                throw new \Omeka\Module\Exception\ModuleCannotInstallException((string) $message);
+            }
+        }
     }
 }
