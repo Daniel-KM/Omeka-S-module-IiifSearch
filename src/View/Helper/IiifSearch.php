@@ -814,6 +814,7 @@ class IiifSearch extends AbstractHelper
             ksort($results);
             foreach ($results as $pageIndex => $resultHits) {
                 $hits = [];
+                $hitMatches = [];
                 foreach ($resultHits as $hit => $resultHit) {
                     $searchResult = new AnnotationSearchResult();
                     $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
@@ -1002,7 +1003,8 @@ class IiifSearch extends AbstractHelper
         $this->mediaXmlFirst = count($this->mediaXml) ? reset($this->mediaXml) : null;
 
         if ($this->mediaTsv) {
-            $this->index = 'text/tab-separated-values';
+            // Keep the index set by prepareSearchOrder(), which may be
+            // 'text/tab-separated-values;by-word' for by-word TSV files.
             return true;
         }
 
