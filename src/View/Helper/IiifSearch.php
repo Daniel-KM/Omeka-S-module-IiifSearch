@@ -194,7 +194,8 @@ class IiifSearch extends AbstractHelper
         $view = $this->getView();
 
         // Prepare query early to manage the better search process.
-        $this->query = trim((string) $view->params()->fromQuery('q'));
+        // Limit query length to 100 characters to prevent overload.
+        $this->query = mb_substr(trim((string) $view->params()->fromQuery('q')), 0, 100);
         $this->queryIsExactSearch = mb_substr($this->query, 0, 1) === '"' && mb_substr($this->query, -1) === '"';
         if ($this->queryIsExactSearch) {
             $this->query = trim(mb_substr($this->query, 1, -1));
@@ -1146,6 +1147,8 @@ class IiifSearch extends AbstractHelper
             // Store each word separately to check if they are stored in the
             // right order.
             $queryWords = explode(' ', $this->query);
+            // Limit the number of words to prevent overload.
+            $queryWords = array_slice($queryWords, 0, 20);
             foreach ($queryWords as $queryWord) {
                 $quotedQueryWords[] = preg_quote($queryWord, '/');
             }
@@ -1161,6 +1164,8 @@ class IiifSearch extends AbstractHelper
         }
 
         $queryWords = explode(' ', $cleanQuery);
+        // Limit the number of words to prevent overload via regex on each word.
+        $queryWords = array_slice($queryWords, 0, 20);
         if (count($queryWords) === 1) {
             return [
                 preg_quote($queryWords[0], '/')
