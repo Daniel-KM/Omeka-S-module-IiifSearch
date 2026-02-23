@@ -162,6 +162,16 @@ class IiifSearch extends AbstractHelper
      */
     protected $queryIsExactSearch;
 
+    /**
+     * @var string
+     */
+    protected $baseResultUrl;
+
+    /**
+     * @var string
+     */
+    protected $baseCanvasUrl;
+
     public function __construct(
         ApiManager $api,
         ?DerivativeList $derivativeList,
@@ -225,6 +235,16 @@ class IiifSearch extends AbstractHelper
         }
 
         // TODO Add a warning when the number of images is not the same than the number of pages. But it may be complex because images are not really managed with xml files, so warn somewhere else.
+
+        // Pre-compute base URLs once for all search methods.
+        $iiifUrl = $view->plugin('iiifUrl');
+        $this->baseResultUrl = $iiifUrl($this->item, 'iiifserver/uri', null, [
+            'type' => 'annotation',
+            'name' => 'search-result',
+        ]) . '/';
+        $this->baseCanvasUrl = $iiifUrl($this->item, 'iiifserver/uri', null, [
+            'type' => 'canvas',
+        ]) . '/p';
 
         $result = $this->searchFulltext();
 
@@ -337,19 +357,10 @@ class IiifSearch extends AbstractHelper
             'hit' => 0,
         ];
 
-        // A search result is an annotation on the canvas of the original item,
-        // so an url managed by the iiif server.
-        $iiifUrl = $this->getView()->plugin('iiifUrl');
-        $baseResultUrl = $iiifUrl($this->item, 'iiifserver/uri', null, [
-            'type' => 'annotation',
-            'name' => 'search-result',
-        ]) . '/';
+        $baseResultUrl = $this->baseResultUrl;
+        $baseCanvasUrl = $this->baseCanvasUrl;
 
-        $baseCanvasUrl = $iiifUrl($this->item, 'iiifserver/uri', null, [
-            'type' => 'canvas',
-        ]) . '/p';
-
-        // XPath’s string literals can’t contain both " and ' and doesn't manage
+        // XPath’s string literals can’t contain both " and ‘ and doesn’t manage
         // insensitive comparaison simply, so get all strings and preg them.
 
         $namespaces = $xml->getDocNamespaces();
@@ -508,14 +519,8 @@ class IiifSearch extends AbstractHelper
         libxml_clear_errors();
         libxml_use_internal_errors(false);
 
-        $iiifUrl = $this->getView()->plugin('iiifUrl');
-        $baseResultUrl = $iiifUrl($this->item, 'iiifserver/uri', null, [
-            'type' => 'annotation',
-            'name' => 'search-result',
-        ]) . '/';
-        $baseCanvasUrl = $iiifUrl($this->item, 'iiifserver/uri', null, [
-            'type' => 'canvas',
-        ]) . '/p';
+        $baseResultUrl = $this->baseResultUrl;
+        $baseCanvasUrl = $this->baseCanvasUrl;
 
         $resource = $this->item;
         $xpath = new \DOMXPath($dom);
@@ -669,17 +674,8 @@ class IiifSearch extends AbstractHelper
             'hit' => 0,
         ];
 
-        // A search result is an annotation on the canvas of the original item,
-        // so an url managed by the iiif server.
-        $view = $this->getView();
-        $baseResultUrl = $view->iiifUrl($this->item, 'iiifserver/uri', null, [
-            'type' => 'annotation',
-            'name' => 'search-result',
-        ]) . '/';
-
-        $baseCanvasUrl = $view->iiifUrl($this->item, 'iiifserver/uri', null, [
-            'type' => 'canvas',
-        ]) . '/p';
+        $baseResultUrl = $this->baseResultUrl;
+        $baseCanvasUrl = $this->baseCanvasUrl;
 
         $resource = $this->item;
         $matches = [];
@@ -1007,17 +1003,8 @@ class IiifSearch extends AbstractHelper
                 }
             }
 
-            // A search result is an annotation on the canvas of the original item,
-            // so an url managed by the iiif server.
-            $view = $this->getView();
-            $baseResultUrl = $view->iiifUrl($this->item, 'iiifserver/uri', null, [
-                'type' => 'annotation',
-                'name' => 'search-result',
-            ]) . '/';
-
-            $baseCanvasUrl = $view->iiifUrl($this->item, 'iiifserver/uri', null, [
-                'type' => 'canvas',
-            ]) . '/p';
+            $baseResultUrl = $this->baseResultUrl;
+            $baseCanvasUrl = $this->baseCanvasUrl;
 
             // The variable is reinit below, so store total first.
             $result['hit'] = $hit;
@@ -1119,17 +1106,8 @@ class IiifSearch extends AbstractHelper
         }
         $imageIndexById = array_column($imageSizesById, 'index', 'id');
 
-        // A search result is an annotation on the canvas of the original item,
-        // so an url managed by the iiif server.
-        $iiifUrl = $this->getView()->plugin('iiifUrl');
-        $baseResultUrl = $iiifUrl($this->item, 'iiifserver/uri', null, [
-            'type' => 'annotation',
-            'name' => 'search-result',
-        ]) . '/';
-
-        $baseCanvasUrl = $iiifUrl($this->item, 'iiifserver/uri', null, [
-            'type' => 'canvas',
-        ]) . '/p';
+        $baseResultUrl = $this->baseResultUrl;
+        $baseCanvasUrl = $this->baseCanvasUrl;
 
         $result = [
             'resources' => [],
