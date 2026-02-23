@@ -144,7 +144,7 @@ class XmlAltoSingle extends AbstractHelper
 
         try {
             if ($this->xmlFixMode === 'dom') {
-                $xmlContent = $this->fixXmlDom($xmlContent);
+                $currentXml = $this->fixXmlDom($xmlContent);
             } elseif ($this->xmlFixMode === 'regex') {
                 $xmlContent = $this->fixUtf8->__invoke($xmlContent);
                 $currentXml = @simplexml_load_string($xmlContent);
