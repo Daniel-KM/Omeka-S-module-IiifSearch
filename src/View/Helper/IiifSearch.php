@@ -818,7 +818,7 @@ class IiifSearch extends AbstractHelper
             $expressionPositions = [];
             $indexQueryWord = 0;
             $currentExpression = [];
-            while (($data = fgetcsv($handle, 1000000, "\t", chr(0), chr(0))) !== false) {
+            while (($data = fgetcsv($handle, 1000000, "\t", "\0", "\0")) !== false) {
                 $word = mb_strtolower($data[0], 'UTF-8');
                 if ($word !== $cleanQueryWords[$indexQueryWord]) {
                     // Reset current result, but retry with the first word.
@@ -846,7 +846,7 @@ class IiifSearch extends AbstractHelper
                         // a single page and on multiple pages (see below).
                         $zones = [];
                         foreach ($currentExpression as $pageData) {
-                            $left = strtok($pageData[2], ',');;
+                            $left = strtok($pageData[2], ',');
                             $top = strtok(',');
                             $width = strtok(',');
                             $height = strtok(',');
@@ -893,6 +893,7 @@ class IiifSearch extends AbstractHelper
             }
 
             if (!count($expressionPositions)) {
+                fclose($handle);
                 return null;
             }
 
@@ -909,13 +910,13 @@ class IiifSearch extends AbstractHelper
 
             $wordPositions = [];
             if ($isTsvByWord) {
-                while (($data = fgetcsv($handle, 1000000, "\t", chr(0), chr(0))) !== false) {
+                while (($data = fgetcsv($handle, 1000000, "\t", "\0", "\0")) !== false) {
                     if (isset($queryWordsByWords[$data[0]])) {
                         $wordPositions[$data[0]] = $data[1];
                     }
                 }
             } else {
-                while (($data = fgetcsv($handle, 1000000, "\t", chr(0), chr(0))) !== false) {
+                while (($data = fgetcsv($handle, 1000000, "\t", "\0", "\0")) !== false) {
                     $word = mb_strtolower($data[0], 'UTF-8');
                     if (isset($queryWordsByWords[$word])) {
                         $wordPositions[$word][] = [$data[1], $data[2]];
@@ -924,9 +925,12 @@ class IiifSearch extends AbstractHelper
             }
 
             if (!count($wordPositions)) {
+                fclose($handle);
                 return null;
             }
         }
+
+        fclose($handle);
 
         // TODO Seach all words ("AND") but not an expression (require +).
 
@@ -943,9 +947,6 @@ class IiifSearch extends AbstractHelper
             // The hit index in the full resource, used to build search result
             // uris.
             $hit = 0;
-            $page = 0;
-            // 0-based page index.
-            $indexPageTsv = -1;
 
             // Because the tsv is not structured by page, store results then
             // normalize response. The two-steps process is simpler and allows
@@ -973,8 +974,8 @@ class IiifSearch extends AbstractHelper
 
                     if (!strlen($zone['top']) || !strlen($zone['left']) || !$zone['width'] || !$zone['height']) {
                         $this->logger->warn(new Message(
-                            'Inconsistent data for item #%1$d, tsv media #%2$d, page %3$d, word %4$s.', // @translate
-                            $this->item->id(), $this->mediaTsv ? $this->mediaTsv->id() : '-', $indexPageTsv + 1, $chars
+                            'Inconsistent data for item #%1$d, tsv media #%2$d, page %3$s, word %4$s.', // @translate
+                            $this->item->id(), $this->mediaTsv ? $this->mediaTsv->id() : '-', $pageIndex, $chars
                         ));
                         continue;
                     }
@@ -1113,15 +1114,18 @@ class IiifSearch extends AbstractHelper
             'resources' => [],
             'hit' => 0,
         ];
+        $resource = $this->item;
+        $chars = $this->query;
         foreach ($mediaIds as $id) {
             // Skip files that are not images.
             if (!isset($imageIndexById[$id])) {
                 continue;
             }
+            ++$hit;
             ++$result['hit'];
             $image = $imageSizesById[$id];
             $zone = [
-                'text' => '',
+                'text' => $chars,
                 'top' => 0,
                 'left' => 0,
                 'width' => $image['width'],
@@ -1161,6 +1165,7 @@ class IiifSearch extends AbstractHelper
     protected function prepareSearchIndexAndImages(): bool
     {
         $this->index = null;
+        $this->mediaTsv = null;
         $this->mediaXml = [];
         $this->imageSizes = [];
         $this->indexFilePath = null;
@@ -1226,7 +1231,7 @@ class IiifSearch extends AbstractHelper
             $mediaId = $media->id();
             $mediaType = $media->mediaType();
             if ($mediaType === 'text/tab-separated-values') {
-                $this->index = mb_substr((string) $media->source(), -12) === '.by-word.tsv'
+                $this->index = substr((string) $media->source(), -12) === '.by-word.tsv'
                     ? 'text/tab-separated-values;by-word'
                     : 'text/tab-separated-values' ;
                 $this->mediaTsv = $media;
@@ -1305,7 +1310,7 @@ class IiifSearch extends AbstractHelper
         $filepath = ($filename = $media->filename())
             ? $this->basePath . '/original/' . $filename
             : $media->originalUrl();
-        $size = getimagesize($filepath);
+        $size = @getimagesize($filepath);
         return $size
             ? ['width' => $size[0], 'height' => $size[1]]
             : ['width' => 0, 'height' => 0];
@@ -1339,6 +1344,7 @@ class IiifSearch extends AbstractHelper
             }
             // Store each word separately to check if they are stored in the
             // right order.
+            $quotedQueryWords = [];
             $queryWords = explode(' ', $this->query);
             // Limit the number of words to prevent overload.
             $queryWords = array_slice($queryWords, 0, 20);
@@ -1632,7 +1638,8 @@ class IiifSearch extends AbstractHelper
     protected function normalize($input): string
     {
         if (extension_loaded('intl')) {
-            $transliterator = \Transliterator::createFromRules(':: NFD; :: [:Nonspacing Mark:] Remove; :: NFC;');
+            static $transliterator;
+            $transliterator ??= \Transliterator::createFromRules(':: NFD; :: [:Nonspacing Mark:] Remove; :: NFC;');
             $string = $transliterator->transliterate((string) $input);
         } elseif (extension_loaded('iconv')) {
             $string = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', (string) $input);

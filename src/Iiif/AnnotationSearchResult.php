@@ -125,7 +125,7 @@ class AnnotationSearchResult extends AbstractSimpleType
     public function resource(): array
     {
         return [
-            '@type' => 'cnt:ContextAstext',
+            '@type' => 'cnt:ContentAsText',
             'chars' => $this->_result['chars'],
         ];
     }
@@ -153,7 +153,7 @@ class AnnotationSearchResult extends AbstractSimpleType
         $scaleX = $imageWidth && $pageWidth ? $imageWidth / $pageWidth : 1;
         $scaleY = $imageHeight && $pageHeight ? $imageHeight / $pageHeight : 1;
 
-        if (strlen($this->_result['chars'])) {
+        if (strlen($this->_result['chars']) && mb_strlen($this->_result['zone']['text'])) {
             $x = $this->_result['zone']['left'] + mb_stripos($this->_result['zone']['text'], $this->_result['chars'])
             / mb_strlen($this->_result['zone']['text']) * $this->_result['zone']['width'];
             $y = $this->_result['zone']['top'];

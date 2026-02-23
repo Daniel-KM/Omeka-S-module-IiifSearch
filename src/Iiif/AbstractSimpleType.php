@@ -108,10 +108,11 @@ abstract class AbstractSimpleType extends ArrayObject implements JsonSerializabl
 
     public function jsonSerialize(): array
     {
+        $content = $this->getContent();
         // The validity check updates the content.
-        $this->isValid(true);
+        $this->isValidContent($content, true);
         // TODO Remove useless context from sub-objects. And other copied data (homepage, etc.).
-        return (array) $this->getContent();
+        return $content;
     }
 
     /**
@@ -123,8 +124,11 @@ abstract class AbstractSimpleType extends ArrayObject implements JsonSerializabl
      */
     public function isValid(bool $throwException = false): bool
     {
-        $output = $this->getContent();
+        return $this->isValidContent($this->getContent(), $throwException);
+    }
 
+    protected function isValidContent(array $output, bool $throwException = false): bool
+    {
         // Check if all required data are present.
         $requiredKeys = array_filter($this->_keys, function ($v) {
             return $v === self::REQUIRED;

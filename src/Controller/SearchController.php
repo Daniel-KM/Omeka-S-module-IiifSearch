@@ -31,6 +31,7 @@ class SearchController extends AbstractActionController
         }
 
         // Exception is automatically thrown by api.
+        $item = null;
         if (is_numeric($id)) {
             try {
                 $item = $this->api()->read('items', $id)->getContent();
@@ -56,7 +57,7 @@ class SearchController extends AbstractActionController
             $this->getResponse()->setStatusCode(Response::STATUS_CODE_400);
             return new JsonModel([
                 'status' => 'error',
-                'message' => sprintf($this->translate('Search is not supported for resource #%d (missing XML and/or image files).'), $id), // @translate
+                'message' => $this->translate('Search is not available for this resource.'), // @translate
             ]);
         }
 
