@@ -2,21 +2,24 @@
 
 namespace IiifSearch;
 
-use IiifSearch\Form\ConfigForm;
+if (!class_exists('Common\TraitModule', false)) {
+    require_once file_exists(dirname(__DIR__) . '/Common/src/TraitModule.php')
+        ? dirname(__DIR__) . '/Common/src/TraitModule.php'
+        : dirname(__DIR__) . '/Common/TraitModule.php';
+}
+
+use Common\Stdlib\PsrMessage;
+use Common\TraitModule;
 use Laminas\EventManager\Event;
 use Laminas\EventManager\SharedEventManagerInterface;
-use Laminas\Mvc\Controller\AbstractController;
 use Laminas\Mvc\MvcEvent;
-use Laminas\ServiceManager\ServiceLocatorInterface;
-use Laminas\View\Renderer\PhpRenderer;
 use Omeka\Module\AbstractModule;
 
 class Module extends AbstractModule
 {
-    public function getConfig()
-    {
-        return include __DIR__ . '/config/module.config.php';
-    }
+    use TraitModule;
+
+    const NAMESPACE = __NAMESPACE__;
 
     public function onBootstrap(MvcEvent $event): void
     {
@@ -95,6 +98,27 @@ class Module extends AbstractModule
         if ($newPath !== $path) {
             $request->getUri()->setPath($newPath);
         }
+    }
+
+    protected function preInstall(): void
+    {
+        $services = $this->getServiceLocator();
+        $translate = $services->get('ControllerPluginManager')
+            ->get('translate');
+
+        if (!method_exists($this, 'checkModuleActiveVersion')
+            || !$this->checkModuleActiveVersion('Common', '3.4.80')
+        ) {
+            $message = new PsrMessage(
+                $translate('The module %1$s should be upgraded to version %2$s or later.'), // @translate
+                'Common', '3.4.80'
+            );
+            throw new \Omeka\Module\Exception\ModuleCannotInstallException(
+                (string) $message
+            );
+        }
+
+        $this->checkExtractOcr();
     }
 
     public function attachListeners(SharedEventManagerInterface $sharedEventManager): void
@@ -220,72 +244,6 @@ class Module extends AbstractModule
         }
 
         $event->setParam('manifest', $manifest);
-    }
-
-    /**
-     * getConfigForm
-     *
-     * @param  mixed $renderer
-     */
-    public function getConfigForm(PhpRenderer $renderer)
-    {
-        $services = $this->getServiceLocator();
-
-        $settings = $services->get('Omeka\Settings');
-        $form = $services->get('FormElementManager')->get(ConfigForm::class);
-        $params = [];
-        $params['iiifsearch_minimum_query_length'] = $settings->get('iiifsearch_minimum_query_length', 3);
-        $params['iiifsearch_xml_image_match'] = $settings->get('iiifsearch_xml_image_match', 'order');
-        $params['iiifsearch_xml_fix_mode'] = $settings->get('iiifsearch_xml_fix_mode', 'no');
-        $form->init();
-        $form->setData($params);
-        return $renderer->formCollection($form);
-    }
-
-    /**
-     * handleConfigForm
-     *
-     * @param  mixed $controller
-     */
-    public function handleConfigForm(AbstractController $controller): void
-    {
-        $services = $this->getServiceLocator();
-        $settings = $services->get('Omeka\Settings');
-        $params = $controller->getRequest()->getPost();
-        $settings->set('iiifsearch_minimum_query_length', intval($params['iiifsearch_minimum_query_length']));
-        $settings->set('iiifsearch_xml_image_match', $params['iiifsearch_xml_image_match']);
-        $settings->set('iiifsearch_xml_fix_mode', $params['iiifsearch_xml_fix_mode']);
-    }
-
-    /**
-     * install
-     *
-     * @param ServiceLocatorInterface $services
-     */
-    public function install(ServiceLocatorInterface $services): void
-    {
-        $this->checkExtractOcr();
-
-        $settings = $services->get('Omeka\Settings');
-        $settings->set("iiifsearch_minimum_query_length", 3);
-    }
-
-    /**
-     * unistall
-     *
-     * @param ServiceLocatorInterface $services
-     */
-    public function uninstall(ServiceLocatorInterface $services): void
-    {
-        $settings = $services->get('Omeka\Settings');
-        $settings->delete("iiifsearch_minimum_query_length");
-    }
-
-    public function upgrade($oldVersion, $newVersion, ServiceLocatorInterface $services): void
-    {
-        $filepath = __DIR__ . '/data/scripts/upgrade.php';
-        $this->setServiceLocator($services);
-        require_once $filepath;
     }
 
     protected function checkExtractOcr()
