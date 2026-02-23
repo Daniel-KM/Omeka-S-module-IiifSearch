@@ -11,9 +11,9 @@ IIIF Search is a module for Omeka S that add IIIF Search Api for fulltext search
 Optional modules
 ----------------
 
-The module can live alone, but module [IIIF-Server](https://github.com/bubdxm/Omeka-S-module-IiifServer) is required to be useful on your own install.
+The module can live alone, but module [IIIF Server](https://gitlab.com/Daniel-KM/Omeka-S-module-IiifServer) is required to be useful on your own install.
 
-If your ocr comes from pdf, you need to extract them first with module [Extract OCR](https://github.com/bubdxm/Omeka-S-module-ExtractOcr).
+If your ocr comes from pdf, you need to extract them first with module [Extract OCR](https://gitlab.com/Daniel-KM/Omeka-S-module-ExtractOcr).
 
 If your ocr files are Alto xml files, they are managed natively: just upload them with the item alongside images (tested on alto v3).
 
@@ -25,7 +25,7 @@ Installation
 
 ```sh
 cd omeka-s/modules
-git clone git@github.com:symac/Omeka-S-module-IiifSearch.git "IiifSearch"
+git clone git@gitlab.com:Daniel-KM/Omeka-S-module-IiifSearch.git "IiifSearch"
 ```
 
 - Enable it from Omeka admin → Modules → IiifSearch -> install
@@ -68,9 +68,9 @@ Viewers
 TODO
 ----
 
-- [ ] Implement API Search v1.
-- [x] Implement API Search v2.
-- [ ] Add a distinct route for v0, v1 and v2.
+- [x] Implement API Search v1.
+- [ ] Implement API Search v2.
+- [ ] Add a distinct route for v0, v1 and v2 (v0 and v1 done, v2 missing).
 - [ ] Auto complete.
 - [x] Store data (word positions) as media data or item data or in a specific table or in Solr to speed up queries, in particular when alto are many. Use pdftotext -tsv for a simpler process.
 - [x] Fix utf8 issues with dom.
@@ -80,7 +80,7 @@ TODO
 Troubleshooting
 ---------------
 
-See online [IIIF Search issues](https://github.com/bubdxm/Omeka-S-module-IiifSearch/issues).
+See online [IIIF Search issues](https://gitlab.com/Daniel-KM/Omeka-S-module-IiifSearch/-/issues).
 
 
 License
@@ -106,5 +106,5 @@ this program; if not, write to the Free Software Foundation, Inc.,
 Contact
 -------
 
-* Syvain Machefert, Université Bordeaux 3 (see [symac](https://github.com/symac))
+* Sylvain Machefert, Université Bordeaux 3 (see [symac](https://github.com/symac))
 * Daniel Berthereau, (see [Daniel-KM](https://gitlab.com/Daniel-KM))
