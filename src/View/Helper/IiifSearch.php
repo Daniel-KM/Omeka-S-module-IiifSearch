@@ -47,6 +47,12 @@ class IiifSearch extends AbstractHelper
             'media_type' => 'application/alto+xml',
             'short_extension' => 'xml',
         ],
+        'text/vnd.hocr+html' => [
+            'dir' => 'hocr',
+            'extension' => 'hocr.html',
+            'media_type' => 'text/vnd.hocr+html',
+            'short_extension' => 'html',
+        ],
     ];
 
     /**
@@ -302,7 +308,15 @@ class IiifSearch extends AbstractHelper
             return $this->searchFullTextTsv($filepath, true);
         }
 
+        if ($this->index === 'text/vnd.hocr+html') {
+            return $this->searchFullTextHocr();
+        }
+
         $xml = $this->loadXml();
+        // loadXml() may set $this->index for media-based hOCR.
+        if ($this->index === 'text/vnd.hocr+html') {
+            return $this->searchFullTextHocr();
+        }
         if (empty($xml)) {
             return null;
         } elseif ($this->index === 'application/alto+xml') {
@@ -446,6 +460,204 @@ class IiifSearch extends AbstractHelper
         $result['hit'] = $hit;
 
         return $result;
+    }
+
+    /**
+     * Search full text in hOCR (html-based ocr format).
+     *
+     * hocr uses html with specific css classes (ocr_page, ocrx_word) and bbox
+     * coordinates in title attributes.
+     *
+     * @see https://kba.github.io/hocr-spec/1.2/
+     */
+    protected function searchFullTextHocr(): ?array
+    {
+        $result = [
+            'resources' => [],
+            'hits' => [],
+            'media_ids' => [],
+            'hit' => 0,
+        ];
+
+        $filepath = $this->indexFilePath;
+        if (!$filepath) {
+            if (!$this->mediaXmlFirst) {
+                return null;
+            }
+            $filename = $this->mediaXmlFirst->filename();
+            $filepath = $filename
+                ? $this->basePath . '/original/' . $filename
+                : $this->mediaXmlFirst->originalUrl();
+        }
+
+        $htmlContent = @file_get_contents($filepath);
+        if (!$htmlContent) {
+            $this->logger->err(new Message(
+                'Error: hOCR content is empty for item #%d.', // @translate
+                $this->item->id()
+            ));
+            return null;
+        }
+
+        $dom = new DOMDocument();
+        libxml_use_internal_errors(true);
+        $dom->loadHTML(
+            '<?xml encoding="UTF-8"?>' . $htmlContent,
+            LIBXML_NOERROR | LIBXML_NOWARNING
+        );
+        libxml_clear_errors();
+        libxml_use_internal_errors(false);
+
+        $iiifUrl = $this->getView()->plugin('iiifUrl');
+        $baseResultUrl = $iiifUrl($this->item, 'iiifserver/uri', null, [
+            'type' => 'annotation',
+            'name' => 'search-result',
+        ]) . '/';
+        $baseCanvasUrl = $iiifUrl($this->item, 'iiifserver/uri', null, [
+            'type' => 'canvas',
+        ]) . '/p';
+
+        $resource = $this->item;
+        $xpath = new \DOMXPath($dom);
+
+        try {
+            $hit = 0;
+            $indexPageXml = -1;
+
+            $pages = $xpath->query(
+                "//*[contains(@class, 'ocr_page')]"
+            );
+            foreach ($pages as $pageNode) {
+                ++$indexPageXml;
+
+                $pageBbox = $this->parseHocrBbox(
+                    $pageNode->getAttribute('title')
+                );
+                if (!$pageBbox) {
+                    $this->logger->warn(new Message(
+                        'Incomplete data for hOCR file from item #%1$s, page %2$s.', // @translate
+                        $this->item->id(), $indexPageXml + 1
+                    ));
+                    continue;
+                }
+
+                $page = [];
+                $page['number'] = (string) ($indexPageXml + 1);
+                $page['width'] = (string) $pageBbox['width'];
+                $page['height'] = (string) $pageBbox['height'];
+
+                $pageIndex = $indexPageXml;
+
+                $hits = [];
+                $hitMatches = [];
+
+                $words = $xpath->query(
+                    ".//*[contains(@class, 'ocrx_word')]",
+                    $pageNode
+                );
+                foreach ($words as $wordNode) {
+                    $zone = [];
+                    $zone['text'] = $wordNode->textContent;
+                    if (!strlen($zone['text'])) {
+                        continue;
+                    }
+
+                    foreach ($this->queryWords as $chars) {
+                        $matches = [];
+                        if (!empty($this->imageSizes[$pageIndex]['width'])
+                            && !empty($this->imageSizes[$pageIndex]['height'])
+                            && preg_match('/' . $chars . '/Uui', $zone['text'], $matches) > 0
+                        ) {
+                            $wordBbox = $this->parseHocrBbox(
+                                $wordNode->getAttribute('title')
+                            );
+                            if (!$wordBbox) {
+                                $this->logger->warn(new Message(
+                                    'Inconsistent data for hOCR file from item #%1$s, page %2$s.', // @translate
+                                    $this->item->id(), $indexPageXml + 1
+                                ));
+                                continue;
+                            }
+
+                            $zone['left'] = (string) $wordBbox['left'];
+                            $zone['top'] = (string) $wordBbox['top'];
+                            $zone['width'] = (string) $wordBbox['width'];
+                            $zone['height'] = (string) $wordBbox['height'];
+
+                            ++$hit;
+
+                            $image = $this->imageSizes[$pageIndex];
+
+                            $searchResult = new AnnotationSearchResult();
+                            $searchResult->initOptions([
+                                'baseResultUrl' => $baseResultUrl,
+                                'baseCanvasUrl' => $baseCanvasUrl,
+                            ]);
+                            $result['resources'][] = $searchResult
+                                ->setResult(compact(
+                                    'resource', 'image', 'page',
+                                    'zone', 'chars', 'hit'
+                                ));
+                            $result['media_ids'][] = $image['id'];
+
+                            $hits[] = $searchResult->id();
+                            $hitMatches[] = $matches[0];
+                        }
+                    }
+                }
+
+                if ($hits) {
+                    $searchHit = new SearchHit();
+                    $searchHit['annotations'] = $hits;
+                    $searchHit['match'] = implode(
+                        ' ',
+                        array_unique($hitMatches)
+                    );
+                    $result['hits'][] = $searchHit;
+                }
+            }
+        } catch (\Exception $e) {
+            $this->logger->err(new Message(
+                'Error: hOCR content may be invalid for item #%1$d, page #%2$d.', // @translate
+                $this->item->id(), $indexPageXml + 1
+            ));
+            return null;
+        }
+
+        $result['hit'] = $hit;
+
+        return $result;
+    }
+
+    /**
+     * Parse a hOCR title attribute and extract bbox coordinates.
+     *
+     * The title attribute has the format:
+     * "bbox x1 y1 x2 y2; x_wconf 95"
+     *
+     * @return array|null Array with keys left, top, width, height
+     *   or null if bbox is missing.
+     */
+    protected function parseHocrBbox(string $title): ?array
+    {
+        if (!preg_match('/\bbbox\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/', $title, $m)) {
+            return null;
+        }
+        $x1 = (int) $m[1];
+        $y1 = (int) $m[2];
+        $x2 = (int) $m[3];
+        $y2 = (int) $m[4];
+        $w = $x2 - $x1;
+        $h = $y2 - $y1;
+        if ($w <= 0 || $h <= 0) {
+            return null;
+        }
+        return [
+            'left' => $x1,
+            'top' => $y1,
+            'width' => $w,
+            'height' => $h,
+        ];
     }
 
     protected function searchFullTextPdfXml(SimpleXmlElement $xml): ?array
@@ -1029,6 +1241,7 @@ class IiifSearch extends AbstractHelper
         $supportedXmlMediaTypes = [
             'application/vnd.pdf2xml+xml',
             'application/alto+xml',
+            'text/vnd.hocr+html',
         ];
 
         foreach ($this->item->media() as $media) {
@@ -1199,6 +1412,10 @@ class IiifSearch extends AbstractHelper
     protected function loadXml(): ?SimpleXMLElement
     {
         if ($this->indexFilePath) {
+            // hOCR is html, not xml: handled by searchFullTextHocr().
+            if ($this->index === 'text/vnd.hocr+html') {
+                return null;
+            }
             return $this->loadXmlFromFilepath($this->indexFilePath, null);
         }
 
@@ -1209,6 +1426,11 @@ class IiifSearch extends AbstractHelper
         // The media type is already checked.
         // For xml, the type is the same than the media type.
         $this->index = $this->mediaXmlFirst->mediaType();
+
+        // hOCR is html, not xml: handled by searchFullTextHocr().
+        if ($this->index === 'text/vnd.hocr+html') {
+            return null;
+        }
 
         $toCache = false;
         // Merge all xml

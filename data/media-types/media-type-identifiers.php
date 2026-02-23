@@ -73,6 +73,9 @@ return [
     'ead'                                               => 'application/vnd.ead+xml',
     'feed'                                              => 'application/atom+xml',
     'html'                                              => 'text/html',
+    // hOCR is an html-based format for ocr results (tesseract, etc.).
+    'hocr'                                              => 'text/vnd.hocr+html',
+    'hocr.html'                                         => 'text/vnd.hocr+html',
     'mag'                                               => 'application/vnd.iccu.mag+xml',
     'mei'                                               => 'application/vnd.mei+xml',
     // 'mets'                                           => 'application/vnd.mets+xml', // Deprecated in 2011.

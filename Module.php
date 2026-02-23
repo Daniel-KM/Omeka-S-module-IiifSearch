@@ -123,18 +123,20 @@ class Module extends AbstractModule
         $services = $this->getServiceLocator();
         $config = $services->get('Config');
         $basePath = $config['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
-        $simpleFilepath = $basePath . '/iiif-search/' . $resource->id() . '.tsv';
-        if (!file_exists($simpleFilepath)) {
-            $simpleFilepath = $basePath . '/alto/' . $resource->id() . '.alto.xml';
-            if (!file_exists($simpleFilepath)) {
-                $simpleFilepath = $basePath . '/pdf2xml/' . $resource->id() . '.xml';
-                if (!file_exists($simpleFilepath)) {
-                    // Old path before ExctractOcr 3.4.7.
-                    $simpleFilepath = $basePath . '/iiif-search/' . $resource->id() . '.xml';
-                    if (!file_exists($simpleFilepath)) {
-                        $simpleFilepath = null;
-                    }
-                }
+        $resourceId = $resource->id();
+        $simpleFilepath = null;
+        $localPaths = [
+            $basePath . '/iiif-search/' . $resourceId . '.tsv',
+            $basePath . '/alto/' . $resourceId . '.alto.xml',
+            $basePath . '/hocr/' . $resourceId . '.hocr.html',
+            $basePath . '/pdf2xml/' . $resourceId . '.xml',
+            // Old path before ExtractOcr 3.4.7.
+            $basePath . '/iiif-search/' . $resourceId . '.xml',
+        ];
+        foreach ($localPaths as $path) {
+            if (file_exists($path)) {
+                $simpleFilepath = $path;
+                break;
             }
         }
 
@@ -143,6 +145,7 @@ class Module extends AbstractModule
             $searchServiceAvailable = false;
             $searchMediaTypes = [
                 'application/alto+xml',
+                'text/vnd.hocr+html',
                 'application/vnd.pdf2xml+xml',
                 'text/tab-separated-values',
             ];

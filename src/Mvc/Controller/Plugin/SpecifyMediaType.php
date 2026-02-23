@@ -82,6 +82,9 @@ class SpecifyMediaType extends AbstractPlugin
         if ($mediaType === 'application/zip') {
             $mediaType = $this->getMediaTypeZip() ?: $mediaType;
         }
+        if ($mediaType === 'text/html') {
+            $mediaType = $this->getMediaTypeHtml() ?: $mediaType;
+        }
         return $mediaType;
     }
 
@@ -196,6 +199,37 @@ class SpecifyMediaType extends AbstractPlugin
         return substr($contents, 30, 8) === 'mimetype'
             ? substr($contents, 38, strpos($contents, 'PK', 38) - 38)
             : null;
+    }
+
+    /**
+     * Detect hOCR among html files.
+     *
+     * hOCR is an html-based format for ocr output (tesseract, etc.)
+     * with extension ".hocr.html". Since finfo returns "text/html",
+     * check the file extension or content for hOCR markers.
+     */
+    protected function getMediaTypeHtml(): ?string
+    {
+        // Quick check: compound extension ".hocr.html" or ".hocr".
+        $filepath = $this->filepath;
+        if (substr($filepath, -10) === '.hocr.html'
+            || substr($filepath, -5) === '.hocr'
+        ) {
+            return 'text/vnd.hocr+html';
+        }
+
+        // Content check: look for hOCR class markers in first 4 KB.
+        $handle = @fopen($filepath, 'rb');
+        if (!$handle) {
+            return null;
+        }
+        $head = fread($handle, 4096);
+        fclose($handle);
+        if ($head && strpos($head, 'ocr_page') !== false) {
+            return 'text/vnd.hocr+html';
+        }
+
+        return null;
     }
 
     /**
