@@ -1506,7 +1506,7 @@ class IiifSearch extends AbstractHelper
                 if ($isPdf2Xml) {
                     $xmlContent = $this->fixXmlPdf2Xml($xmlContent);
                 }
-                $currentXml = @simplexml_load_string($xmlContent);
+                $currentXml = @simplexml_load_string($xmlContent, null, LIBXML_NONET);
             } elseif ($this->xmlFixMode === 'all') {
                 $xmlContent = $this->fixUtf8->__invoke($xmlContent);
                 if ($isPdf2Xml) {
@@ -1517,7 +1517,7 @@ class IiifSearch extends AbstractHelper
                 if ($isPdf2Xml) {
                     $xmlContent = $this->fixXmlPdf2Xml($xmlContent);
                 }
-                $currentXml = @simplexml_load_string($xmlContent);
+                $currentXml = @simplexml_load_string($xmlContent, null, LIBXML_NONET);
             }
         } catch (\Exception $e) {
             if ($hasNoMedia || !$this->mediaXmlFirst) {
@@ -1570,7 +1570,7 @@ class IiifSearch extends AbstractHelper
         $dom->validateOnParse = false;
         $dom->recover = true;
         try {
-            $result = $dom->loadXML($xmlContent);
+            $result = $dom->loadXML($xmlContent, LIBXML_NONET);
             $result = $result ? simplexml_import_dom($dom) : null;
         } catch (Exception $e) {
             $result = null;

@@ -147,12 +147,12 @@ class XmlAltoSingle extends AbstractHelper
                 $currentXml = $this->fixXmlDom($xmlContent);
             } elseif ($this->xmlFixMode === 'regex') {
                 $xmlContent = $this->fixUtf8->__invoke($xmlContent);
-                $currentXml = @simplexml_load_string($xmlContent);
+                $currentXml = @simplexml_load_string($xmlContent, null, LIBXML_NONET);
             } elseif ($this->xmlFixMode === 'all') {
                 $xmlContent = $this->fixUtf8->__invoke($xmlContent);
                 $currentXml = $this->fixXmlDom($xmlContent);
             } else {
-                $currentXml = @simplexml_load_string($xmlContent);
+                $currentXml = @simplexml_load_string($xmlContent, null, LIBXML_NONET);
             }
         } catch (Exception $e) {
             $this->logger->err(new Message(
@@ -191,7 +191,7 @@ class XmlAltoSingle extends AbstractHelper
         $dom->validateOnParse = false;
         $dom->recover = true;
         try {
-            $result = $dom->loadXML($xmlContent);
+            $result = $dom->loadXML($xmlContent, LIBXML_NONET);
             $result = $result ? simplexml_import_dom($dom) : null;
         } catch (Exception $e) {
             $result = null;
