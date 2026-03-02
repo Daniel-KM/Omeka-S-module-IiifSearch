@@ -3,7 +3,7 @@
 namespace IiifSearch\Service\ViewHelper;
 
 use IiifSearch\View\Helper\XmlAltoSingle;
-use Interop\Container\ContainerInterface;
+use Psr\Container\ContainerInterface;
 
 class XmlAltoSingleFactory
 {
