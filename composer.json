@@ -1,5 +1,5 @@
 {
-    "name": "daniel-km/omeka-s-module-iiifsearch",
+    "name": "daniel-km/omeka-s-module-iiif-search",
     "type": "omeka-s-module",
     "description": "Module for Omeka S: Search api for IIIF compliant viewers (Universal Viewer, Mirador, etc.)",
     "keywords": [
