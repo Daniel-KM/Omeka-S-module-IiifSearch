@@ -1311,9 +1311,18 @@ class IiifSearch extends AbstractHelper
             ? $this->basePath . '/original/' . $filename
             : $media->originalUrl();
         $size = @getimagesize($filepath);
-        return $size
-            ? ['width' => $size[0], 'height' => $size[1]]
-            : ['width' => 0, 'height' => 0];
+        if (!$size) {
+            return ['width' => 0, 'height' => 0];
+        }
+        $width = $size[0];
+        $height = $size[1];
+        // EXIF orientations 5-8 indicate a 90° or 270°
+        // rotation, so width and height must be swapped.
+        $exif = @exif_read_data($filepath);
+        if ($exif && !empty($exif['Orientation']) && $exif['Orientation'] >= 5) {
+            [$width, $height] = [$height, $width];
+        }
+        return ['width' => $width, 'height' => $height];
     }
 
     /**
