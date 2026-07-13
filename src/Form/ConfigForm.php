@@ -328,7 +328,7 @@ class ConfigForm extends Form
                 ],
                 'attributes' => [
                     'id' => 'item_ids',
-                    'placeholder' => '2-6 8 38-52 80-', // @translate
+                    'placeholder' => '2-6 8 38-52 80-',
                 ],
             ])
             ->add([

@@ -1247,14 +1247,17 @@ class IiifSearch extends AbstractHelper
             'text/vnd.hocr+html',
         ];
 
+        $mediaTsvFull = null;
+        $mediaTsvByWord = null;
         foreach ($this->item->media() as $media) {
             $mediaId = $media->id();
             $mediaType = $media->mediaType();
             if ($mediaType === 'text/tab-separated-values') {
-                $this->index = substr((string) $media->source(), -12) === '.by-word.tsv'
-                    ? 'text/tab-separated-values;by-word'
-                    : 'text/tab-separated-values' ;
-                $this->mediaTsv = $media;
+                if (substr((string) $media->source(), -12) === '.by-word.tsv') {
+                    $mediaTsvByWord = $media;
+                } else {
+                    $mediaTsvFull = $media;
+                }
             } elseif (in_array($mediaType, $supportedXmlMediaTypes)) {
                 $this->mediaXml[] = $media;
             } elseif ($mediaType === 'text/xml' || $mediaType === 'application/xml') {
@@ -1292,6 +1295,25 @@ class IiifSearch extends AbstractHelper
                     $this->imageSizes[] = $size;
                 }
             }
+        }
+
+        // Pick the optimal TSV variant: by-word for single/multi word queries
+        // (small, fast lookup), full for exact phrase search (preserves order).
+        // Fall back to the other when only one variant is present.
+        if ($mediaTsvFull && $mediaTsvByWord) {
+            if ($this->queryIsExactSearch) {
+                $this->mediaTsv = $mediaTsvFull;
+                $this->index = 'text/tab-separated-values';
+            } else {
+                $this->mediaTsv = $mediaTsvByWord;
+                $this->index = 'text/tab-separated-values;by-word';
+            }
+        } elseif ($mediaTsvByWord) {
+            $this->mediaTsv = $mediaTsvByWord;
+            $this->index = 'text/tab-separated-values;by-word';
+        } elseif ($mediaTsvFull) {
+            $this->mediaTsv = $mediaTsvFull;
+            $this->index = 'text/tab-separated-values';
         }
 
         return $this;
