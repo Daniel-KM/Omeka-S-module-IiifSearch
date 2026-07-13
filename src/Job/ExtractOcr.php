@@ -10,6 +10,7 @@ use IiifSearch\Stdlib\PageSource;
 use IiifSearch\Stdlib\PageSourceHintReader;
 use IiifSearch\Stdlib\PairingResult;
 use IiifSearch\Stdlib\XmlMediaClassifier;
+use IiifSearch\Stdlib\XmlRepair;
 use Omeka\Api\Representation\AbstractResourceEntityRepresentation;
 use Omeka\Api\Representation\ItemRepresentation;
 use Omeka\Api\Representation\MediaRepresentation;
@@ -1427,30 +1428,37 @@ class ExtractOcr extends AbstractJob
             return null;
         }
 
-        $pairing = null;
-        if (count($altoSources) > 1) {
-            $hintReader = new PageSourceHintReader();
-            $pageSources = [];
-            $i = 0;
-            foreach ($altoSources as $src) {
-                ++$i;
-                if (is_string($src)) {
-                    $ps = new PageSource($i, null, $src, basename($src), 'alto');
-                    $ps->sourceImageFileName = $hintReader->readImageHint($src, 'alto');
-                    $pageSources[] = $ps;
-                } else {
-                    $filepath = $this->basePath . '/original/' . $src->filename();
-                    $ps = new PageSource(
-                        $i,
-                        $src,
-                        $filepath,
-                        (string) $src->source(),
-                        'alto'
-                    );
-                    $ps->sourceImageFileName = $hintReader->readImageHint($filepath, 'alto');
-                    $pageSources[] = $ps;
-                }
+        // Build one PageSource per intrinsic page (a multipage alto with
+        // per-Page sourceImageInformation produces N PageSources sharing the
+        // same media/filepath but carrying individual image hints). The pairer
+        // is invoked as soon as the total intrinsic page count is greater than
+        // one, even for a single multipage source.
+        $hintReader = new PageSourceHintReader();
+        $pageSources = [];
+        $globalIndex = 0;
+        foreach ($altoSources as $src) {
+            if (is_string($src)) {
+                $filepath = $src;
+                $media = null;
+                $rawName = basename($src);
+            } else {
+                $filepath = $this->basePath . '/original/' . $src->filename();
+                $media = $src;
+                $rawName = (string) $src->source();
             }
+            $hints = $hintReader->readAllImageHints($filepath, 'alto');
+            $pageCount = max(1, count($hints));
+            for ($k = 0; $k < $pageCount; ++$k) {
+                ++$globalIndex;
+                $ps = new PageSource($globalIndex, $media, $filepath, $rawName, 'alto');
+                $ps->intrinsicPage = $k + 1;
+                $ps->sourceImageFileName = $hints[$k] ?? null;
+                $pageSources[] = $ps;
+            }
+        }
+
+        $pairing = null;
+        if (count($pageSources) > 1) {
             $pairer = new PagePairer($this->basePath);
             $pairing = $pairer->pair($item, $pageSources, $this->pairingMode);
             $this->logger->info(new Message(
@@ -1778,55 +1786,12 @@ class ExtractOcr extends AbstractJob
      */
     protected function fixXmlDom(string $xmlContent): ?SimpleXMLElement
     {
-        libxml_use_internal_errors(true);
-
-        $dom = new DOMDocument('1.1', 'UTF-8');
-        $dom->strictErrorChecking = false;
-        $dom->validateOnParse = false;
-        $dom->recover = true;
-        try {
-            $result = $dom->loadXML($xmlContent, LIBXML_NONET);
-            $result = $result ? simplexml_import_dom($dom) : null;
-        } catch (Exception $e) {
-            $result = null;
-        }
-
-        libxml_clear_errors();
-        libxml_use_internal_errors(false);
-
-        return $result;
+        return XmlRepair::fixXmlDom($xmlContent);
     }
 
-    /**
-     * Copy in:
-     * @see \IiifSearch\Job\ExtractOcr::fixXmlPdf2Xml()
-     * @see \IiifSearch\View\Helper\IiifSearch::fixXmlPdf2Xml()
-     * @see \IiifServer\Iiif\TraitXml::fixXmlPdf2Xml()
-     */
     protected function fixXmlPdf2Xml(?string $xmlContent): string
     {
-        if (!$xmlContent) {
-            return (string) $xmlContent;
-        }
-
-        // When the content is not a valid unicode text, a null is output.
-        // Replace all series of spaces by a single space.
-        $xmlContent = preg_replace('~\s{2,}~S', ' ', $xmlContent) ?? $xmlContent;
-        // Remove bold and italic.
-        $xmlContent = preg_replace('~</?[bi]>~S', '', $xmlContent) ?? $xmlContent;
-        // Remove fontspecs, useless for search and sometime incorrect with old
-        // versions of pdftohtml. Exemple with pdftohtml 0.71 (debian 10):
-        // <fontspec id="^C
-        // <fontspec id=" " size="^P" family="PBPMTB+ArialUnicodeMS" color="#000000"/>
-        /*
-        if (preg_match('~<fontspec id=".*>$~S', '', $xmlContent)) {
-            $xmlContent = preg_replace('~<fontspec id=".*>$~S', '', $xmlContent) ?? $xmlContent;
-        }
-        */
-        // Keep incomplete font specs in order to keep order of font ids.
-        $xmlContent = preg_replace('~<fontspec id="[^>]*$~S', '<fontspec/>*\n', $xmlContent) ?? $xmlContent;
-        $xmlContent = str_replace('<!doctype pdf2xml system "pdf2xml.dtd">', '<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">', $xmlContent);
-        return $xmlContent;
+        return XmlRepair::fixXmlPdf2Xml($xmlContent);
     }
 
     protected function processXslt(SimpleXMLElement $simpleXml, string $xsltPath, array $params = []): ?DOMDocument

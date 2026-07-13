@@ -18,57 +18,120 @@ class PageSourceHintReader
 {
     public function readImageHint(string $filepath, string $classification): ?string
     {
+        $hints = $this->readAllImageHints($filepath, $classification);
+        foreach ($hints as $hint) {
+            if ($hint !== '') {
+                return $hint;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Return one hint per intrinsic page in the source file (single-element
+     * array for per-page sources, N-element array for multipage TEI/ALTO/hOCR).
+     * Pages without a hint yield an empty string at their position so the
+     * indexing stays aligned with the document's natural page order.
+     *
+     * @return string[]
+     */
+    public function readAllImageHints(string $filepath, string $classification): array
+    {
         if (!is_readable($filepath)) {
-            return null;
+            return [];
         }
         switch ($classification) {
             case XmlMediaClassifier::TYPE_ALTO:
-                return $this->readAltoHint($filepath);
+                return $this->readAltoHints($filepath);
             case XmlMediaClassifier::TYPE_HOCR:
-                return $this->readHocrHint($filepath);
+                return $this->readHocrHints($filepath);
             case XmlMediaClassifier::TYPE_TEI:
-                return $this->readTeiHint($filepath);
+                return $this->readTeiHints($filepath);
         }
-        return null;
+        return [];
     }
 
-    protected function readAltoHint(string $filepath): ?string
+    /**
+     * Per-Page sourceImageInformation/fileName when present; falls back to the
+     * single Description-level entry shared by all pages.
+     *
+     * @return string[]
+     */
+    protected function readAltoHints(string $filepath): array
     {
-        $head = $this->readHead($filepath, 8192);
-        if ($head === '' || stripos($head, 'sourceimageinformation') === false) {
-            return null;
+        // ALTO can be large; read enough head to cover several Page elements
+        // but bail if the file is enormous.
+        $content = (string) @file_get_contents($filepath, false, null, 0, 1048576);
+        if ($content === '' || stripos($content, 'sourceimageinformation') === false) {
+            return [];
         }
-        if (preg_match('~<(?:[\w-]+:)?fileName>\s*([^<]+?)\s*</(?:[\w-]+:)?fileName>~i', $head, $m)) {
-            return trim($m[1]);
+        $hints = [];
+        if (preg_match_all('~<(?:[\w-]+:)?Page\b[^>]*>.*?(<(?:[\w-]+:)?sourceImageInformation>.*?</(?:[\w-]+:)?sourceImageInformation>).*?</(?:[\w-]+:)?Page>~is', $content, $matches)) {
+            foreach ($matches[1] as $block) {
+                if (preg_match('~<(?:[\w-]+:)?fileName>\s*([^<]+?)\s*</(?:[\w-]+:)?fileName>~i', $block, $m)) {
+                    $hints[] = trim($m[1]);
+                } else {
+                    $hints[] = '';
+                }
+            }
         }
-        return null;
+        if ($hints) {
+            return $hints;
+        }
+        if (preg_match('~<(?:[\w-]+:)?fileName>\s*([^<]+?)\s*</(?:[\w-]+:)?fileName>~i', $content, $m)) {
+            return [trim($m[1])];
+        }
+        return [];
     }
 
-    protected function readHocrHint(string $filepath): ?string
+    /**
+     * One hint per ocr_page div found in the hOCR.
+     *
+     * @return string[]
+     */
+    protected function readHocrHints(string $filepath): array
     {
-        $head = $this->readHead($filepath, 8192);
-        if ($head === '' || stripos($head, 'ocr_page') === false) {
-            return null;
+        $content = (string) @file_get_contents($filepath, false, null, 0, 1048576);
+        if ($content === '' || stripos($content, 'ocr_page') === false) {
+            return [];
         }
-        if (preg_match('~class=["\'][^"\']*ocr_page[^"\']*["\'][^>]*title=["\'][^"\']*\bimage\s+([^;"\']+)~i', $head, $m)) {
-            return trim($m[1], " \t\"'");
+        $hints = [];
+        if (preg_match_all('~class=["\'][^"\']*ocr_page[^"\']*["\'][^>]*title=["\']([^"\']*)~i', $content, $matches)) {
+            foreach ($matches[1] as $title) {
+                if (preg_match('~\bimage\s+([^;]+)~i', $title, $m)) {
+                    $hints[] = trim($m[1], " \t\"'");
+                } else {
+                    $hints[] = '';
+                }
+            }
         }
-        return null;
+        return $hints;
     }
 
-    protected function readTeiHint(string $filepath): ?string
+    /**
+     * One hint per <surface @source> for multipage TEI; falls back to
+     * <graphic @url> when surface is not used.
+     *
+     * @return string[]
+     */
+    protected function readTeiHints(string $filepath): array
     {
-        $head = $this->readHead($filepath, 8192);
-        if ($head === '') {
-            return null;
+        $content = (string) @file_get_contents($filepath, false, null, 0, 1048576);
+        if ($content === '') {
+            return [];
         }
-        if (preg_match('~<(?:[\w-]+:)?surface\b[^>]*\s(?:[\w-]+:)?source=["\']([^"\']+)~i', $head, $m)) {
-            return trim($m[1]);
+        $hints = [];
+        if (preg_match_all('~<(?:[\w-]+:)?surface\b[^>]*\s(?:[\w-]+:)?source=["\']([^"\']+)~i', $content, $matches)) {
+            foreach ($matches[1] as $source) {
+                $hints[] = trim($source);
+            }
         }
-        if (preg_match('~<(?:[\w-]+:)?graphic\b[^>]*\s(?:[\w-]+:)?url=["\']([^"\']+)~i', $head, $m)) {
-            return trim($m[1]);
+        if (!$hints && preg_match_all('~<(?:[\w-]+:)?graphic\b[^>]*\s(?:[\w-]+:)?url=["\']([^"\']+)~i', $content, $matches)) {
+            foreach ($matches[1] as $url) {
+                $hints[] = trim($url);
+            }
         }
-        return null;
+        return $hints;
     }
 
     protected function readHead(string $filepath, int $bytes): string

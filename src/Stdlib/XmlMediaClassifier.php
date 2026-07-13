@@ -18,8 +18,22 @@ class XmlMediaClassifier
     const TYPE_METS = 'mets';
     const TYPE_HOCR = 'hocr';
     const TYPE_PDF2XML = 'pdf2xml';
+    const TYPE_TEI = 'tei';
     const TYPE_OTHER = 'other';
     const TYPE_UNKNOWN = 'unknown';
+
+    /**
+     * Media-types that uniquely identify a dialect. When Omeka stored one of
+     * these, the content sniff is skipped.
+     */
+    const PRECISE_MIMES = [
+        'application/alto+xml' => self::TYPE_ALTO,
+        'application/mets+xml' => self::TYPE_METS,
+        'application/vnd.pdf2xml+xml' => self::TYPE_PDF2XML,
+        'text/vnd.hocr+html' => self::TYPE_HOCR,
+        'application/vnd.hocr+xml' => self::TYPE_HOCR,
+        'application/tei+xml' => self::TYPE_TEI,
+    ];
 
     /**
      * @var array<int|string,string>
@@ -61,6 +75,9 @@ class XmlMediaClassifier
         if (preg_match('~<pdf2xml\b~i', $head)) {
             return self::TYPE_PDF2XML;
         }
+        if (preg_match('~<(?:[\w-]+:)?TEI(?:\.2)?\b~', $head)) {
+            return self::TYPE_TEI;
+        }
         return self::TYPE_OTHER;
     }
 
@@ -69,6 +86,16 @@ class XmlMediaClassifier
         $mediaId = (int) $media->id();
         if ($mediaId && isset($this->cache[$mediaId])) {
             return $this->cache[$mediaId];
+        }
+        // Trust the media-type when it is precise enough to identify the
+        // dialect, skipping the content sniff entirely.
+        $mime = strtolower((string) $media->mediaType());
+        if (isset(self::PRECISE_MIMES[$mime])) {
+            $result = self::PRECISE_MIMES[$mime];
+            if ($mediaId) {
+                $this->cache[$mediaId] = $result;
+            }
+            return $result;
         }
         $result = self::TYPE_UNKNOWN;
         $filename = $media->filename();
@@ -88,11 +115,14 @@ class XmlMediaClassifier
      */
     public function isXmlLikeMedia(MediaRepresentation $media): bool
     {
+        $mime = strtolower((string) $media->mediaType());
+        if (isset(self::PRECISE_MIMES[$mime])) {
+            return true;
+        }
         $ext = strtolower((string) $media->extension());
         if (in_array($ext, ['xml', 'html', 'htm', 'hocr', 'alto'], true)) {
             return true;
         }
-        $mime = strtolower((string) $media->mediaType());
         if ($mime === '') {
             return false;
         }

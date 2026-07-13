@@ -1651,48 +1651,12 @@ class IiifSearch extends AbstractHelper
      */
     protected function fixXmlDom(string $xmlContent): ?SimpleXMLElement
     {
-        libxml_use_internal_errors(true);
-
-        $dom = new DOMDocument('1.1', 'UTF-8');
-        $dom->strictErrorChecking = false;
-        $dom->validateOnParse = false;
-        $dom->recover = true;
-        try {
-            $result = $dom->loadXML($xmlContent, LIBXML_NONET);
-            $result = $result ? simplexml_import_dom($dom) : null;
-        } catch (Exception $e) {
-            $result = null;
-        }
-
-        libxml_clear_errors();
-        libxml_use_internal_errors(false);
-
-        return $result;
+        return \IiifSearch\Stdlib\XmlRepair::fixXmlDom($xmlContent);
     }
 
-    /**
-     * Copy in:
-     * @see \ExtractOcr\Job\ExtractOcr::fixXmlPdf2Xml()
-     * @see \IiifSearch\View\Helper\IiifSearch::fixXmlPdf2Xml()
-     * @see \IiifServer\Iiif\TraitXml::fixXmlPdf2Xml()
-     */
     protected function fixXmlPdf2Xml(?string $xmlContent): string
     {
-        if (!$xmlContent) {
-            return (string) $xmlContent;
-        }
-        // When the content is not a valid unicode text, a null is output.
-        // Replace all series of spaces by a single space.
-        $xmlContent = preg_replace('~\s{2,}~S', ' ', $xmlContent) ?? $xmlContent;
-        // Remove bold and italic.
-        $xmlContent = preg_replace('~</?[bi]>~S', '', $xmlContent) ?? $xmlContent;
-        // Remove fontspecs, useless for search and sometime incorrect with old
-        // versions of pdftohtml. Exemple with pdftohtml 0.71 (debian 10):
-        // <fontspec id="^C
-        // <fontspec id=" " size="^P" family="PBPMTB+ArialUnicodeMS" color="#000000"/>
-        $xmlContent = preg_replace('~<fontspec id=".*\n~S', '', $xmlContent) ?? $xmlContent;
-        $xmlContent = str_replace('<!doctype pdf2xml system "pdf2xml.dtd">', '<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">', $xmlContent);
-        return $xmlContent;
+        return \IiifSearch\Stdlib\XmlRepair::fixXmlPdf2Xml($xmlContent);
     }
 
     /**

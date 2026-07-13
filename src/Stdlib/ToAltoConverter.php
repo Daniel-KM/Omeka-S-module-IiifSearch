@@ -45,8 +45,23 @@ class ToAltoConverter
                 return $this->convertHocr($sourceFilepath, $targetFilepath);
             case XmlMediaClassifier::TYPE_PDF2XML:
                 return $this->convertPdf2xml($sourceFilepath, $targetFilepath);
+            case XmlMediaClassifier::TYPE_TEI:
+                return $this->convertTei($sourceFilepath, $targetFilepath);
         }
         return false;
+    }
+
+    protected function convertTei(string $sourceFilepath, string $targetFilepath): bool
+    {
+        libxml_use_internal_errors(true);
+        $dom = new DOMDocument();
+        $loaded = @$dom->load($sourceFilepath, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+        libxml_clear_errors();
+        libxml_use_internal_errors(false);
+        if (!$loaded) {
+            return false;
+        }
+        return $this->runXslt($dom, $this->xslDir . '/tei_to_alto.xsl', $targetFilepath);
     }
 
     protected function targetIsFresh(string $sourceFilepath, string $targetFilepath): bool

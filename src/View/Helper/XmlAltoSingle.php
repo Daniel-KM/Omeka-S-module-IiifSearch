@@ -9,6 +9,7 @@ use IiifSearch\Stdlib\PageSource;
 use IiifSearch\Stdlib\PageSourceHintReader;
 use IiifSearch\Stdlib\PairingResult;
 use IiifSearch\Stdlib\XmlMediaClassifier;
+use IiifSearch\Stdlib\XmlRepair;
 use Laminas\Log\Logger;
 use Laminas\View\Helper\AbstractHelper;
 use Omeka\Api\Representation\ItemRepresentation;
@@ -262,23 +263,7 @@ class XmlAltoSingle extends AbstractHelper
      */
     protected function fixXmlDom(string $xmlContent): ?SimpleXMLElement
     {
-        libxml_use_internal_errors(true);
-
-        $dom = new DOMDocument('1.1', 'UTF-8');
-        $dom->strictErrorChecking = false;
-        $dom->validateOnParse = false;
-        $dom->recover = true;
-        try {
-            $result = $dom->loadXML($xmlContent, LIBXML_NONET);
-            $result = $result ? simplexml_import_dom($dom) : null;
-        } catch (Exception $e) {
-            $result = null;
-        }
-
-        libxml_clear_errors();
-        libxml_use_internal_errors(false);
-
-        return $result;
+        return XmlRepair::fixXmlDom($xmlContent);
     }
 
     /**
