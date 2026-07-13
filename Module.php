@@ -29,11 +29,37 @@ class Module extends AbstractModule
         parent::onBootstrap($event);
 
         $acl = $this->getServiceLocator()->get('Omeka\Acl');
-        $acl->allow(null, 'IiifSearch\Controller\Search');
+        $acl
+            ->allow(null, 'IiifSearch\Controller\Search');
 
         // Re-encode decoded slashes in identifiers for search routes.
         $event->getApplication()->getEventManager()
             ->attach(MvcEvent::EVENT_ROUTE, [$this, 'reencodeIdentifierSlashes'], 1000);
+
+        $this->migratePairingSettings();
+    }
+
+    /**
+     * Map the legacy xml_image_match value onto iiifsearch_alto_pairing_mode on
+     * the first boot after upgrade. Only runs when the new setting is at its
+     * default ("auto") so manual choices are preserved. Idempotent via a
+     * one-shot flag.
+     */
+    protected function migratePairingSettings(): void
+    {
+        $services = $this->getServiceLocator();
+        $settings = $services->get('Omeka\Settings');
+        if ($settings->get('iiifsearch_pairing_migrated')) {
+            return;
+        }
+        $current = (string) $settings->get('iiifsearch_alto_pairing_mode', 'auto');
+        if ($current === 'auto') {
+            $legacy = (string) $settings->get('iiifsearch_xml_image_match', '');
+            if ($legacy === 'basename') {
+                $settings->set('iiifsearch_alto_pairing_mode', 'basename');
+            }
+        }
+        $settings->set('iiifsearch_pairing_migrated', true);
     }
 
 
@@ -132,20 +158,10 @@ class Module extends AbstractModule
 
         $errors = [];
 
-        if (!method_exists($this, 'checkModuleActiveVersion')
-            || !$this->checkModuleActiveVersion('Common', '3.4.85')
-        ) {
+        if (!method_exists($this, 'checkModuleActiveVersion') || !$this->checkModuleActiveVersion('Common', '3.4.85')) {
             $message = new \Omeka\Stdlib\Message(
                 $translator->translate('The module %1$s should be upgraded to version %2$s or later.'), // @translate
                 'Common', '3.4.85'
-            );
-            $errors[] = (string) $message;
-        }
-
-        if ($this->isModuleActive('ExtractOcr') && !$this->isModuleVersionAtLeast('ExtractOcr', '3.4.11')) {
-            $message = new \Omeka\Stdlib\Message(
-                $translator->translate('The module %1$s should be upgraded to version %2$s or later.'), // @translate
-                'ExtractOcr', '3.4.11'
             );
             $errors[] = (string) $message;
         }
@@ -162,6 +178,20 @@ class Module extends AbstractModule
             throw new \Omeka\Module\Exception\ModuleCannotInstallException(
                 implode("\n", $errors)
             );
+        }
+
+        $moduleManager = $services->get('Omeka\ModuleManager');
+        $extractOcr = $moduleManager->getModule('ExtractOcr');
+        if ($extractOcr) {
+            $messenger = $services->get('ControllerPluginManager')->get('messenger');
+            try {
+                $moduleManager->deactivate($self);
+                $moduleManager->uninstall($self);
+                $messenger->addSuccess(new PsrMessage(
+                    'Module Extract OCR uninstalled: features are now in IIIF Search.' // @translate
+                ));
+            } catch (\Throwable $e) {
+            }
         }
     }
 

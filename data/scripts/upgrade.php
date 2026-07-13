@@ -125,3 +125,27 @@ if (version_compare($oldVersion, '3.4.14', '<')) {
     );
     $messenger->addSuccess($message);
 }
+
+if (version_compare($oldVersion, '3.4.15', '<')) {
+    // Migrate extract ocr settings.
+    $map = [
+        'extractocr_types_files' => 'iiifsearch_extract_types_files',
+        'extractocr_types_media' => 'iiifsearch_extract_types_media',
+        'extractocr_content_store' => 'iiifsearch_extract_content_store',
+        'extractocr_content_property' => 'iiifsearch_extract_content_property',
+        'extractocr_content_language' => 'iiifsearch_extract_content_language',
+        'extractocr_create_empty_file' => 'iiifsearch_extract_create_empty_file',
+    ];
+    foreach ($map as $old => $new) {
+        $value = $settings->get($old);
+        // Check to avoid double migration.
+        if ($settings->get($new) === null) {
+            $settings->set($new, $value);
+        }
+    }
+
+    $message = new Message(
+        'The module now manages extraction of texts without the need of the module Extract OCR. Furthermore, most of the use cases are now managed automatically: digital objects, item without alto, with an alto multi-pages or with alto by page, item without pdf or with a pdf or with multiple pdf by page, various naming convention.' // @translate
+    );
+    $messenger->addSuccess($message);
+}
