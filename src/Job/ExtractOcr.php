@@ -5,6 +5,10 @@ namespace IiifSearch\Job;
 use DateTime;
 use DOMDocument;
 use Exception;
+use IiifSearch\Stdlib\PagePairer;
+use IiifSearch\Stdlib\PageSource;
+use IiifSearch\Stdlib\PageSourceHintReader;
+use IiifSearch\Stdlib\PairingResult;
 use IiifSearch\Stdlib\XmlMediaClassifier;
 use Omeka\Api\Representation\AbstractResourceEntityRepresentation;
 use Omeka\Api\Representation\ItemRepresentation;
@@ -157,6 +161,11 @@ class ExtractOcr extends AbstractJob
     protected $xmlMediaClassifier;
 
     /**
+     * @var string
+     */
+    protected $pairingMode = 'auto';
+
+    /**
      * @brief Attach attracted ocr data from pdf with item
      */
     public function perform(): void
@@ -303,6 +312,11 @@ class ExtractOcr extends AbstractJob
         }
 
         $this->createEmptyFile = (bool) $settings->get('iiifsearch_extract_create_empty_file');
+
+        $pairingMode = (string) ($this->getArg('pairing_mode')
+            ?: $settings->get('iiifsearch_alto_pairing_mode', 'auto'));
+        $allowedModes = ['auto', 'mets', 'source_image_information', 'basename', 'basename_dir', 'numeric', 'numeric_dir', 'dimension', 'sequential'];
+        $this->pairingMode = in_array($pairingMode, $allowedModes, true) ? $pairingMode : 'auto';
 
         $this->reocrEnabled = (bool) $settings->get('iiifsearch_extract_reocr_no_text_layer', true);
         $this->ocrLanguage = trim((string) $settings->get('iiifsearch_extract_ocr_language', ''));
@@ -1412,15 +1426,77 @@ class ExtractOcr extends AbstractJob
         if (!$altoFilepaths) {
             return null;
         }
+
+        $pairing = null;
+        if (count($altoSources) > 1) {
+            $hintReader = new PageSourceHintReader();
+            $pageSources = [];
+            $i = 0;
+            foreach ($altoSources as $src) {
+                ++$i;
+                if (is_string($src)) {
+                    $ps = new PageSource($i, null, $src, basename($src), 'alto');
+                    $ps->sourceImageFileName = $hintReader->readImageHint($src, 'alto');
+                    $pageSources[] = $ps;
+                } else {
+                    $filepath = $this->basePath . '/original/' . $src->filename();
+                    $ps = new PageSource(
+                        $i,
+                        $src,
+                        $filepath,
+                        (string) $src->source(),
+                        'alto'
+                    );
+                    $ps->sourceImageFileName = $hintReader->readImageHint($filepath, 'alto');
+                    $pageSources[] = $ps;
+                }
+            }
+            $pairer = new PagePairer($this->basePath);
+            $pairing = $pairer->pair($item, $pageSources, $this->pairingMode);
+            $this->logger->info(new Message(
+                'Item #%1$d: pairing method %2$s, coverage %3$s.', // @translate
+                $item->id(),
+                $pairing->method,
+                number_format($pairing->coverage, 2)
+            ));
+            foreach ($pairing->warnings as $w) {
+                $this->logger->notice($w);
+            }
+        }
+
         $tempFile = $this->tempFileFactory->build();
         $tsvPath = $tempFile->getTempPath() . '.' . $this->targetExtension;
         @unlink($tempFile->getTempPath());
         $tempFile->setTempPath($tsvPath);
-        if (!$this->extractTextToTsvFromAlto($altoFilepaths, $tsvPath, $item, $this->targetFormat)) {
+        if (!$this->extractTextToTsvFromAlto($altoFilepaths, $tsvPath, $item, $this->targetFormat, $pairing)) {
             $tempFile->delete();
             return null;
         }
         return $tempFile;
+    }
+
+    /**
+     * Resolve the image dimensions to use for scaling a given ocr page.
+     *
+     * When the pairer produced a non-sequential match, prefer it; otherwise
+     * fall back to positional order. Returns null when no image matches.
+     *
+     * @param array<int,array{id:int,width:int,height:int,source:?string}> $listMediaImages
+     * @return array{width:int,height:int}|null
+     */
+    protected function resolvePageImage(?PairingResult $pairing, int $indexPage, array $listMediaImages): ?array
+    {
+        if ($pairing && $pairing->method !== PairingResult::METHOD_SEQUENTIAL) {
+            $media = $pairing->imageForPage($indexPage);
+            if ($media) {
+                foreach ($listMediaImages as $entry) {
+                    if (isset($entry['id']) && (int) $entry['id'] === (int) $media->id()) {
+                        return $entry;
+                    }
+                }
+            }
+        }
+        return $listMediaImages[$indexPage - 1] ?? null;
     }
 
     /**
@@ -1437,7 +1513,8 @@ class ExtractOcr extends AbstractJob
         $altoFilepaths,
         string $tsvFilepath,
         ItemRepresentation $item,
-        string $format
+        string $format,
+        ?PairingResult $pairing = null
     ): bool {
         $altoFilepaths = is_array($altoFilepaths) ? $altoFilepaths : [$altoFilepaths];
         if (!$altoFilepaths) {
@@ -1500,7 +1577,7 @@ class ExtractOcr extends AbstractJob
                 if (!$pageWidth || !$pageHeight) {
                     continue;
                 }
-                $mediaImage = $listMediaImages[$indexPage - 1] ?? null;
+                $mediaImage = $this->resolvePageImage($pairing, $indexPage, $listMediaImages);
                 $mediaImageWidth = $mediaImage ? $mediaImage['width'] : $pageWidth;
                 $mediaImageHeight = $mediaImage ? $mediaImage['height'] : $pageHeight;
                 $scaleX = $mediaImageWidth / $pageWidth;

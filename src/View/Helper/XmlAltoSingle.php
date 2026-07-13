@@ -4,6 +4,10 @@ namespace IiifSearch\View\Helper;
 
 use DOMDocument;
 use Exception;
+use IiifSearch\Stdlib\PagePairer;
+use IiifSearch\Stdlib\PageSource;
+use IiifSearch\Stdlib\PageSourceHintReader;
+use IiifSearch\Stdlib\PairingResult;
 use IiifSearch\Stdlib\XmlMediaClassifier;
 use Laminas\Log\Logger;
 use Laminas\View\Helper\AbstractHelper;
@@ -133,6 +137,7 @@ class XmlAltoSingle extends AbstractHelper
             $mediaId = $media->id();
             $mediaData[$mediaId] = [
                 'id' => $mediaId,
+                'media' => $media,
                 'source' => $media->source(),
                 'filename' => $filename,
                 'filepath' => $filepath,
@@ -142,7 +147,69 @@ class XmlAltoSingle extends AbstractHelper
                 'size' => $media->size(),
             ];
         }
+
+        if (count($mediaData) > 1) {
+            $mediaData = $this->reorderByPairing($item, $mediaData);
+        }
+
         return $mediaData;
+    }
+
+    /**
+     * Re-order per-page alto entries by the position of their paired image
+     * media, so the merged alto pages align with the item's image order even
+     * when the alto medias were attached out of sequence.
+     */
+    protected function reorderByPairing(ItemRepresentation $item, array $mediaData): array
+    {
+        $hintReader = new PageSourceHintReader();
+        $sources = [];
+        $i = 0;
+        foreach ($mediaData as $entry) {
+            ++$i;
+            $ps = new PageSource(
+                $i,
+                $entry['media'],
+                $entry['filepath'],
+                (string) $entry['source'],
+                'alto'
+            );
+            $ps->sourceImageFileName = $hintReader->readImageHint($entry['filepath'], 'alto');
+            $sources[] = $ps;
+        }
+        $pairer = new PagePairer($this->basePath);
+        $pairing = $pairer->pair($item, $sources);
+        if ($pairing->method === PairingResult::METHOD_SEQUENTIAL) {
+            return $mediaData;
+        }
+        $imagePositions = [];
+        $i = 0;
+        foreach ($item->media() as $media) {
+            $imagePositions[(int) $media->id()] = $i++;
+        }
+        $byPair = [];
+        $unpaired = [];
+        $page = 0;
+        foreach ($mediaData as $entry) {
+            ++$page;
+            $paired = $pairing->imageForPage($page);
+            if ($paired) {
+                $byPair[$imagePositions[(int) $paired->id()] ?? PHP_INT_MAX][] = $entry;
+            } else {
+                $unpaired[] = $entry;
+            }
+        }
+        ksort($byPair);
+        $result = [];
+        foreach ($byPair as $bucket) {
+            foreach ($bucket as $entry) {
+                $result[$entry['id']] = $entry;
+            }
+        }
+        foreach ($unpaired as $entry) {
+            $result[$entry['id']] = $entry;
+        }
+        return $result;
     }
 
     protected function loadXmlFromFilepath(?string $filepath, ?int $resourceId = null): ?SimpleXMLElement

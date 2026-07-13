@@ -109,6 +109,17 @@ class IiifSearch extends AbstractHelper
     /**
      * @var string
      */
+    protected $pairingMode = 'auto';
+
+    public function setPairingMode(string $mode): self
+    {
+        $this->pairingMode = $mode ?: 'auto';
+        return $this;
+    }
+
+    /**
+     * @var string
+     */
     protected $xmlImageMatch;
 
     /**
@@ -1211,7 +1222,15 @@ class IiifSearch extends AbstractHelper
             return false;
         }
 
-        if ($this->xmlImageMatch === 'basename') {
+        // New pairer cascade takes precedence when configured to auto or any
+        // strategy beyond the legacy "order"/"basename" toggle. Legacy
+        // "basename" keeps using the simple pathinfo path for compatibility
+        // with pre-3.4.18 deployments that explicitly set it.
+        if ($this->pairingMode !== 'sequential'
+            && count($this->mediaXml) > 1
+        ) {
+            $this->prepareSearchPaired();
+        } elseif ($this->xmlImageMatch === 'basename') {
             $this->prepareSearchBasename();
         }
 
@@ -1274,6 +1293,59 @@ class IiifSearch extends AbstractHelper
                 }
             }
         }
+
+        return $this;
+    }
+
+    /**
+     * Reorder xml medias to align with images using the PagePairer cascade.
+     * Falls back to position when the cascade settles on sequential.
+     */
+    protected function prepareSearchPaired(): self
+    {
+        $hintReader = new \IiifSearch\Stdlib\PageSourceHintReader();
+        $sources = [];
+        $i = 0;
+        $altoMedias = array_values($this->mediaXml);
+        foreach ($altoMedias as $media) {
+            ++$i;
+            $filepath = $this->basePath . '/original/' . $media->filename();
+            $ps = new \IiifSearch\Stdlib\PageSource(
+                $i,
+                $media,
+                $filepath,
+                (string) $media->source(),
+                'alto'
+            );
+            $ps->sourceImageFileName = $hintReader->readImageHint($filepath, 'alto');
+            $sources[] = $ps;
+        }
+        $pairer = new \IiifSearch\Stdlib\PagePairer($this->basePath);
+        $pairing = $pairer->pair($this->item, $sources, $this->pairingMode);
+        if ($pairing->method === \IiifSearch\Stdlib\PairingResult::METHOD_SEQUENTIAL) {
+            return $this;
+        }
+
+        // Build image-id -> alto media mapping from the cascade result, then
+        // rebuild mediaXml in image order so existing imageSizes-indexed code
+        // can keep using positional lookups.
+        $altoByImageId = [];
+        $page = 0;
+        foreach ($altoMedias as $alto) {
+            ++$page;
+            $img = $pairing->imageForPage($page);
+            if ($img) {
+                $altoByImageId[(int) $img->id()] = $alto;
+            }
+        }
+
+        $reordered = [];
+        foreach ($this->imageSizes as $indexImage => $sizeData) {
+            $id = (int) ($sizeData['id'] ?? 0);
+            $reordered[$indexImage] = $altoByImageId[$id] ?? null;
+        }
+        $this->mediaXml = $reordered;
+        $this->mediaXmlFirst = count($this->mediaXml) ? reset($this->mediaXml) : null;
 
         return $this;
     }

@@ -68,14 +68,16 @@ class ConfigForm extends Form
                 ],
             ])
 
-            // The option is the same in module IIIF Server.
-            // TODO Make option to match image and xml an option to set in a property of the item.
+            // Deprecated: superseded by iiifsearch_alto_pairing_mode. Kept so
+            // legacy installs do not lose their choice; remove in a future
+            // major. New deployments should leave this at "order" and tune the
+            // new setting instead.
             ->add([
                 'name' => 'iiifsearch_xml_image_match',
                 'type' => Element\Radio::class,
                 'options' => [
                     'element_group' => 'ocr',
-                    'label' => 'Match images and xmls when they are multiple', // @translate
+                    'label' => 'Match images and xmls when they are multiple (deprecated, use the page pairing mode below)', // @translate
                     'value_options' => [
                         'order' => 'Media order (page_001.jpg, alto_001.xml, page_002.jpg, alto_002.xml, …)', // @translate
                         'basename' => 'Media source base filename (page_001.jpg, page_002.jpg, page_002.xml, page_001.xml…)', // @translate
@@ -120,12 +122,14 @@ class ConfigForm extends Form
                 ],
             ])
 
+            // Deprecated: superseded by iiifsearch_alto_pairing_mode. Kept for
+            // legacy installs; remove in a future major.
             ->add([
                 'name' => 'iiifsearch_alto_page_match',
                 'type' => Element\Radio::class,
                 'options' => [
                     'element_group' => 'ocr',
-                    'label' => 'Match multipage ALTO Page to canvas', // @translate
+                    'label' => 'Match multipage ALTO Page to canvas (deprecated, use the page pairing mode below)', // @translate
                     'value_options' => [
                         'order' => 'Media order (Page n matches the n-th non-ALTO media)', // @translate
                         'physical_img_nr' => 'Page/@PHYSICAL_IMG_NR (1-based)', // @translate
@@ -264,6 +268,29 @@ class ConfigForm extends Form
                 ],
                 'attributes' => [
                     'id' => 'iiifsearch_extract_ocr_language',
+                ],
+            ])
+            ->add([
+                'name' => 'iiifsearch_alto_pairing_mode',
+                'type' => Element\Radio::class,
+                'options' => [
+                    'element_group' => 'ocr',
+                    'label' => 'Page to image pairing mode', // @translate
+                    'info' => 'Strategy used to match each OCR page to its image. Auto runs a cascade of heuristics (METS, sourceImageInformation, basename, numeric, dimension, then sequential).', // @translate
+                    'value_options' => [
+                        'auto' => 'Auto (recommended)', // @translate
+                        'mets' => 'Force METS structMap', // @translate
+                        'source_image_information' => 'Force alto/hocr image hint', // @translate
+                        'basename' => 'Force basename', // @translate
+                        'basename_dir' => 'Force basename + directory', // @translate
+                        'numeric' => 'Force numeric token', // @translate
+                        'numeric_dir' => 'Force numeric token + directory', // @translate
+                        'dimension' => 'Force aspect ratio', // @translate
+                        'sequential' => 'Force sequential position', // @translate
+                    ],
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_alto_pairing_mode',
                 ],
             ])
 

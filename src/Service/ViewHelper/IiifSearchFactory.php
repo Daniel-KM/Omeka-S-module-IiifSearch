@@ -15,7 +15,7 @@ class IiifSearchFactory
         $helpers = $services->get('ViewHelperManager');
         $settings = $services->get('Omeka\Settings');
 
-        return new IiifSearch(
+        $iiifSearch = new IiifSearch(
             $services->get('Omeka\ApiManager'),
             $helpers->has('derivativeList') ? $helpers->get('derivativeList') : null,
             $helpers->get('fixUtf8'),
@@ -27,5 +27,7 @@ class IiifSearchFactory
             $settings->get('iiifsearch_xml_fix_mode', 'no'),
             $settings->get('iiifsearch_xml_image_match', 'order')
         );
+        $iiifSearch->setPairingMode((string) $settings->get('iiifsearch_alto_pairing_mode', 'auto'));
+        return $iiifSearch;
     }
 }

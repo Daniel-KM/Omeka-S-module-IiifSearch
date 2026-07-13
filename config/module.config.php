@@ -168,6 +168,7 @@ return [
             'iiifsearch_extract_reocr_no_text_layer' => true,
             'iiifsearch_extract_ocr_images' => true,
             'iiifsearch_extract_ocr_language' => '',
+            'iiifsearch_alto_pairing_mode' => 'auto',
         ],
     ],
 ];
