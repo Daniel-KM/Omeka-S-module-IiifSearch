@@ -4,6 +4,7 @@ namespace IiifSearch\View\Helper;
 
 use DOMDocument;
 use Exception;
+use IiifSearch\Stdlib\XmlMediaClassifier;
 use Laminas\Log\Logger;
 use Laminas\View\Helper\AbstractHelper;
 use Omeka\Api\Representation\ItemRepresentation;
@@ -98,6 +99,7 @@ class XmlAltoSingle extends AbstractHelper
 
     protected function mediaData(ItemRepresentation $item): array
     {
+        $classifier = new XmlMediaClassifier();
         $mediaData = [];
         foreach ($item->media() as $media) {
             if (!$media->hasOriginal() || !$media->size()) {
@@ -113,12 +115,21 @@ class XmlAltoSingle extends AbstractHelper
             if (!$mediaType) {
                 continue;
             }
-            $mainType = strtok($mediaType, '/');
             $extension = $media->extension();
-            // TODO Manage extracted text without content.
-            if ($mediaType !== 'application/alto+xml') {
+            // Accept either the canonical alto mime or any xml-like media whose
+            // content sniffs as alto (common case: mime is application/xml
+            // because Omeka did not recognize the dialect).
+            $isAlto = $mediaType === 'application/alto+xml';
+            if (!$isAlto
+                && $classifier->isXmlLikeMedia($media)
+                && $classifier->classifyFile($filepath) === XmlMediaClassifier::TYPE_ALTO
+            ) {
+                $isAlto = true;
+            }
+            if (!$isAlto) {
                 continue;
             }
+            $mainType = strtok($mediaType, '/');
             $mediaId = $media->id();
             $mediaData[$mediaId] = [
                 'id' => $mediaId,

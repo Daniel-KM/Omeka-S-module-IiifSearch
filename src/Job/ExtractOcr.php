@@ -5,6 +5,7 @@ namespace IiifSearch\Job;
 use DateTime;
 use DOMDocument;
 use Exception;
+use IiifSearch\Stdlib\XmlMediaClassifier;
 use Omeka\Api\Representation\AbstractResourceEntityRepresentation;
 use Omeka\Api\Representation\ItemRepresentation;
 use Omeka\Api\Representation\MediaRepresentation;
@@ -149,6 +150,11 @@ class ExtractOcr extends AbstractJob
      * @var \Transliterator|false|null
      */
     protected $transliterator;
+
+    /**
+     * @var XmlMediaClassifier|null
+     */
+    protected $xmlMediaClassifier;
 
     /**
      * @brief Attach attracted ocr data from pdf with item
@@ -1337,21 +1343,37 @@ class ExtractOcr extends AbstractJob
     /**
      * Find every attached ALTO XML media on the item, in media position order.
      *
-     * Returns an empty array when the item has no alto. A single entry is the
-     * common multi-page alto case; multiple entries are treated as per-page
-     * alto files and concatenated downstream.
+     * Detection is done by sniffing the root element rather than relying on
+     * media_type, because Omeka almost always stores alto uploads as plain
+     * application/xml or text/xml. Falls back to the legacy mime check when the
+     * classifier is unavailable.
      *
      * @return MediaRepresentation[]
      */
     protected function findExistingAltoMedias(ItemRepresentation $item): array
     {
+        $classifier = $this->getXmlMediaClassifier();
         $medias = [];
         foreach ($item->media() as $media) {
             if ($media->mediaType() === self::FORMAT_ALTO) {
                 $medias[] = $media;
+                continue;
+            }
+            if ($classifier->isXmlLikeMedia($media)
+                && $classifier->classifyMedia($media, $this->basePath) === XmlMediaClassifier::TYPE_ALTO
+            ) {
+                $medias[] = $media;
             }
         }
         return $medias;
+    }
+
+    protected function getXmlMediaClassifier(): XmlMediaClassifier
+    {
+        if (!$this->xmlMediaClassifier) {
+            $this->xmlMediaClassifier = new XmlMediaClassifier();
+        }
+        return $this->xmlMediaClassifier;
     }
 
     /**
