@@ -12,9 +12,11 @@ use Common\Stdlib\PsrMessage;
 use Common\TraitModule;
 use Laminas\EventManager\Event;
 use Laminas\EventManager\SharedEventManagerInterface;
+use Laminas\Mvc\Controller\AbstractController;
 use Laminas\Mvc\MvcEvent;
 use Laminas\View\Renderer\PhpRenderer;
 use Omeka\Module\AbstractModule;
+use Omeka\Stdlib\Message;
 
 class Module extends AbstractModule
 {
@@ -169,6 +171,30 @@ class Module extends AbstractModule
             '*',
             'iiifserver.manifest',
             [$this, 'handleIiifServerManifest']
+        );
+
+        // OCR extraction (formerly module ExtractOcr).
+        $sharedEventManager->attach(
+            \Omeka\Api\Adapter\ItemAdapter::class,
+            'api.create.post',
+            [$this, 'extractOcr']
+        );
+        $sharedEventManager->attach(
+            \Omeka\Api\Adapter\ItemAdapter::class,
+            'api.update.post',
+            [$this, 'extractOcr']
+        );
+
+        // EasyAdmin batch job entries.
+        $sharedEventManager->attach(
+            \EasyAdmin\Form\CheckAndFixForm::class,
+            'form.add_elements',
+            [$this, 'handleEasyAdminJobsForm']
+        );
+        $sharedEventManager->attach(
+            \EasyAdmin\Controller\Admin\CheckAndFixController::class,
+            'easyadmin.job',
+            [$this, 'handleEasyAdminJobs']
         );
     }
 
@@ -505,5 +531,362 @@ class Module extends AbstractModule
             $i++;
         }
         return null;
+    }
+
+    protected function postInstall(): void
+    {
+        $this->postInstallAuto();
+        $services = $this->getServiceLocator();
+        $logger = $services->get('Omeka\Logger');
+
+        // Soft requirement: OCR extraction features need poppler-utils.
+        if ((int) shell_exec('hash pdftotext 2>&- || echo 1')) {
+            $logger->warn(new Message(
+                'The command-line utility pdftotext is not available; OCR extraction will be disabled until package poppler-utils is installed.' // @translate
+            ));
+        }
+        if ((int) shell_exec('hash pdftohtml 2>&- || echo 1')) {
+            $logger->warn(new Message(
+                'The command-line utility pdftohtml is not available; OCR extraction will be disabled until package poppler-utils is installed.' // @translate
+            ));
+        }
+
+        $config = $services->get('Config');
+        $basePath = $config['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
+        foreach (['temp', 'iiif-search', 'alto', 'pdf2xml'] as $sub) {
+            if (!$this->checkDestinationDir($basePath . '/' . $sub)) {
+                $logger->warn(new Message(
+                    'The directory "%s" is not writeable; OCR extraction features may not work.', // @translate
+                    $basePath . '/' . $sub
+                ));
+            }
+        }
+
+        $this->allowFileFormats();
+
+        // Default OCR file types and pdf content store.
+        $settings = $services->get('Omeka\Settings');
+        if (!$settings->get('iiifsearch_extract_types_files')) {
+            $settings->set('iiifsearch_extract_types_files', [
+                'text/tab-separated-values;by-word',
+                'application/alto+xml',
+            ]);
+        }
+        if (!$settings->get('iiifsearch_extract_content_store')) {
+            $settings->set('iiifsearch_extract_content_store', ['media_pdf']);
+        }
+    }
+
+    public function handleConfigForm(AbstractController $controller)
+    {
+        $this->allowFileFormats();
+
+        $result = $this->handleConfigFormAuto($controller);
+        if (!$result) {
+            return false;
+        }
+
+        $params = $controller->getRequest()->getPost();
+        $extractParams = $params['iiifsearch_extract'] ?? [];
+        if (empty($extractParams['process'])
+            || $extractParams['process'] !== $controller->translate('Process')
+        ) {
+            return true;
+        }
+
+        $services = $this->getServiceLocator();
+        $args = [
+            'mode' => $extractParams['mode'] ?? 'all',
+            'base_uri' => $this->getBaseUri(),
+            'item_ids' => $extractParams['item_ids'] ?? '',
+        ];
+        $dispatcher = $services->get(\Omeka\Job\Dispatcher::class);
+        $job = $dispatcher->dispatch(\IiifSearch\Job\ExtractOcr::class, $args);
+
+        $message = new Message(
+            'Creating Extract OCR files in background (job %1$s#%2$s%3$s, %4$slogs%3$s).', // @translate
+            sprintf(
+                '<a href="%s">',
+                htmlspecialchars($controller->url()->fromRoute('admin/id', ['controller' => 'job', 'id' => $job->getId()]))
+            ),
+            $job->getId(),
+            '</a>',
+            class_exists('Log\Module', false)
+                ? sprintf('<a href="%1$s">', $controller->url()->fromRoute('admin/default', ['controller' => 'log'], ['query' => ['job_id' => $job->getId()]]))
+                : sprintf('<a href="%1$s" target="_blank">', $controller->url()->fromRoute('admin/id', ['controller' => 'job', 'action' => 'log', 'id' => $job->getId()]))
+        );
+        $message->setEscapeHtml(false);
+        $controller->messenger()->addSuccess($message);
+        return true;
+    }
+
+    /**
+     * Launch extract ocr job for an item after save.
+     *
+     * Deduplicates dispatches in batches via Common\DeferredJobDispatch.
+     */
+    public function extractOcr(Event $event): void
+    {
+        $services = $this->getServiceLocator();
+        $response = $event->getParams()['response'];
+        /** @var \Omeka\Entity\Item $item */
+        $item = $response->getContent();
+
+        $extensions = [
+            \IiifSearch\Job\ExtractOcr::FORMAT_ALTO => 'alto.xml',
+            \IiifSearch\Job\ExtractOcr::FORMAT_PDF2XML => 'xml',
+            \IiifSearch\Job\ExtractOcr::FORMAT_TSV => 'tsv',
+            \IiifSearch\Job\ExtractOcr::FORMAT_TSV_BY_WORD => 'tsv',
+        ];
+        $settings = $services->get('Omeka\Settings');
+        $targetTypesFiles = $settings->get('iiifsearch_extract_types_files') ?: [];
+        $targetTypesFiles = array_intersect($targetTypesFiles, array_flip($extensions));
+        $targetTypesMedia = $settings->get('iiifsearch_extract_types_media') ?: [];
+        $targetTypesMedia = array_intersect($targetTypesMedia, array_flip($extensions));
+        $targetContentStore = $settings->get('iiifsearch_extract_content_store') ?: [];
+        $targetContentStore = array_intersect($targetContentStore, ['item', 'media_pdf', 'media_extracted']);
+        if (!$targetTypesFiles && !$targetTypesMedia && !$targetContentStore) {
+            return;
+        }
+
+        $hasPdf = false;
+        /** @var \Omeka\Entity\Media $media */
+        foreach ($item->getMedia() as $media) {
+            $mediaType = $media->getMediaType();
+            $extension = strtolower((string) $media->getExtension());
+            if ($mediaType === 'application/pdf' && $extension === 'pdf') {
+                $hasPdf = true;
+                break;
+            }
+        }
+        if (!$hasPdf) {
+            return;
+        }
+
+        $source = (string) $media->getSource();
+        $filename = (string) parse_url($source, PHP_URL_PATH);
+        $targetFilenameNoExtension = strlen($filename)
+            ? basename($filename, '.pdf')
+            : $media->id() . '-' . $media->getStorageId();
+        if (!$targetFilenameNoExtension) {
+            return;
+        }
+
+        $suffixFilenames = [
+            'alto.xml' => '.alto',
+            'xml' => '',
+            'tsv' => '',
+        ];
+        $shortExtensions = [
+            'alto.xml' => 'xml',
+            'xml' => 'xml',
+            'tsv' => 'tsv',
+        ];
+        $dirPaths = [
+            'alto.xml' => 'alto',
+            'pdf2xml' => 'pdf2xml',
+            'tsv' => 'iiif-search',
+            'xml' => 'pdf2xml',
+        ];
+
+        $existingFiles = array_fill_keys($targetTypesFiles, false);
+        if ($targetTypesFiles) {
+            $basePath = $services->get('Config')['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
+            foreach ($targetTypesFiles as $targetTypeFile) {
+                $targetExtension = $extensions[$targetTypeFile];
+                $targetDirPath = $dirPaths[$targetExtension];
+                $localSearchFilepath = $basePath . '/' . $targetDirPath . '/' . $item->getId() . '.' . $targetExtension;
+                if (file_exists($localSearchFilepath)) {
+                    $existingFiles[$targetTypeFile] = true;
+                }
+            }
+        }
+
+        $existingMedias = array_fill_keys($targetTypesMedia, false);
+        if ($targetTypesMedia) {
+            foreach ($targetTypesMedia as $targetMediaType) {
+                $targetExtension = $extensions[$targetMediaType];
+                $targetFilename = $targetFilenameNoExtension . '.' . $targetExtension;
+                if ($this->getMediaFromFilename($item->getId(), $targetFilename . $suffixFilenames[$targetExtension], $shortExtensions[$targetExtension], $targetMediaType)) {
+                    $existingMedias[$targetMediaType] = true;
+                }
+            }
+        }
+
+        if (count(array_filter($existingFiles)) === count($existingFiles)
+            && count(array_filter($existingMedias)) === count($existingMedias)
+            && !count($targetContentStore)
+        ) {
+            return;
+        }
+
+        $baseUri = $this->getBaseUri();
+        if ($services->has('Common\DeferredJobDispatch')) {
+            $services->get('Common\DeferredJobDispatch')->defer(
+                \IiifSearch\Job\ExtractOcr::class,
+                'iiifsearch_extract_ocr',
+                ['item_ids' => $item->getId()],
+                function (string $key, array $allParams) use ($baseUri) {
+                    $ids = [];
+                    foreach ($allParams as $p) {
+                        $ids[] = $p['item_ids'];
+                    }
+                    return [
+                        'mode' => 'all',
+                        'base_uri' => $baseUri,
+                        'item_ids' => implode(' ', array_unique($ids)),
+                        'manual' => true,
+                    ];
+                }
+            );
+        } else {
+            $services->get(\Omeka\Job\Dispatcher::class)->dispatch(
+                \IiifSearch\Job\ExtractOcr::class,
+                [
+                    'mode' => 'all',
+                    'base_uri' => $baseUri,
+                    'item_ids' => (string) $item->getId(),
+                    'manual' => true,
+                ]
+            );
+        }
+    }
+
+    public function handleEasyAdminJobsForm(Event $event): void
+    {
+        /** @var \EasyAdmin\Form\CheckAndFixForm $form */
+        $form = $event->getTarget();
+        $fieldset = $form->get('module_tasks');
+        $process = $fieldset->get('process');
+        $valueOptions = $process->getValueOptions();
+        $valueOptions['iiifsearch_extract'] = 'IIIF Search: Extract ocr from files'; // @translate
+        $process->setValueOptions($valueOptions);
+
+        $fieldset
+            ->add([
+                'type' => \Laminas\Form\Fieldset::class,
+                'name' => 'iiifsearch_extract',
+                'options' => [
+                    'label' => 'Options to extract OCR', // @translate
+                ],
+                'attributes' => [
+                    'class' => 'iiifsearch_extract',
+                ],
+            ])
+            ->get('iiifsearch_extract')
+            ->add([
+                'name' => 'mode',
+                'type' => \Common\Form\Element\OptionalRadio::class,
+                'options' => [
+                    'label' => 'Extract OCR job', // @translate
+                    'value_options' => [
+                        'existing' => 'Only already extracted (improve extraction)', // @translate
+                        'missing' => 'Only missing extracted medias', // @translate
+                        'all' => 'All medias', // @translate
+                    ],
+                ],
+                'attributes' => [
+                    'id' => 'mode',
+                    'value' => 'all',
+                ],
+            ])
+            ->add([
+                'name' => 'item_ids',
+                'type' => \Laminas\Form\Element\Text::class,
+                'options' => [
+                    'label' => 'Item ids', // @translate
+                ],
+                'attributes' => [
+                    'id' => 'item_ids',
+                    'placeholder' => '2-6 8 38-52 80-', // @translate
+                ],
+            ]);
+    }
+
+    public function handleEasyAdminJobs(Event $event): void
+    {
+        $process = $event->getParam('process');
+        if ($process === 'iiifsearch_extract') {
+            $params = $event->getParam('params');
+            $event->setParam('job', \IiifSearch\Job\ExtractOcr::class);
+            $args = $params['module_tasks']['iiifsearch_extract'] ?? [];
+            $args['base_uri'] = $this->getBaseUri();
+            $event->setParam('args', $args);
+        }
+    }
+
+    /**
+     * Allow TSV and XML extensions and media types in omeka settings.
+     */
+    protected function allowFileFormats(): void
+    {
+        $settings = $this->getServiceLocator()->get('Omeka\Settings');
+
+        $extensionWhitelist = $settings->get('extension_whitelist', []);
+        $extensions = ['tsv', 'xml'];
+        $extensionWhitelist = array_unique(array_merge($extensionWhitelist, $extensions));
+        $settings->set('extension_whitelist', $extensionWhitelist);
+
+        $mediaTypeWhitelist = $settings->get('media_type_whitelist', []);
+        $xmlMediaTypes = [
+            'application/xml',
+            'text/xml',
+            'application/alto+xml',
+            'application/vnd.pdf2xml+xml',
+            'application/x-empty',
+            'text/tab-separated-values',
+        ];
+        $mediaTypeWhitelist = array_unique(array_merge($mediaTypeWhitelist, $xmlMediaTypes));
+        $settings->set('media_type_whitelist', $mediaTypeWhitelist);
+    }
+
+    /**
+     * Return the first media matching item id, source filename, extension and
+     * media type. Returns null when none matches.
+     */
+    protected function getMediaFromFilename($itemId, $filename, $extension, $mediaType)
+    {
+        $api = $this->getServiceLocator()->get('Omeka\ApiManager');
+        try {
+            return $api->read('media', [
+                'item' => $itemId,
+                'source' => $filename,
+                'extension' => $extension,
+                'mediaType' => $mediaType,
+            ])->getContent();
+        } catch (\Omeka\Api\Exception\NotFoundException $e) {
+        }
+        return null;
+    }
+
+    protected function getBaseUri(): string
+    {
+        $services = $this->getServiceLocator();
+        $config = $services->get('Config');
+        $baseUri = $config['file_store']['local']['base_uri'] ?? null;
+        if (!$baseUri) {
+            $helpers = $services->get('ViewHelperManager');
+            $serverUrlHelper = $helpers->get('serverUrl');
+            $basePathHelper = $helpers->get('basePath');
+            $baseUri = $serverUrlHelper($basePathHelper('files'));
+            if ($baseUri === 'http:///files' || $baseUri === 'https:///files') {
+                $t = $services->get('MvcTranslator');
+                throw new \Omeka\Mvc\Exception\RuntimeException(
+                    $t->translate('The base uri is not set (key [file_store][local][base_uri]) in the config file of Omeka "config/local.config.php". It must be set for now in order to process background jobs.') // @translate
+                );
+            }
+        }
+        return $baseUri;
+    }
+
+    protected function checkDestinationDir(string $dirPath): ?string
+    {
+        if (file_exists($dirPath)) {
+            if (!is_dir($dirPath) || !is_readable($dirPath) || !is_writeable($dirPath)) {
+                return null;
+            }
+            return $dirPath;
+        }
+        return @mkdir($dirPath, 0775, true) ? $dirPath : null;
     }
 }

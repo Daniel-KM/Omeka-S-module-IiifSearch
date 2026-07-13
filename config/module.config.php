@@ -158,6 +158,13 @@ return [
             'iiifsearch_xml_fix_mode' => 'no',
             'iiifsearch_alto_canvas_inject' => true,
             'iiifsearch_alto_page_match' => 'order',
+            // OCR extraction (formerly module ExtractOcr).
+            'iiifsearch_extract_types_files' => [],
+            'iiifsearch_extract_types_media' => [],
+            'iiifsearch_extract_content_store' => [],
+            'iiifsearch_extract_content_property' => null,
+            'iiifsearch_extract_content_language' => '',
+            'iiifsearch_extract_create_empty_file' => false,
         ],
     ],
 ];
