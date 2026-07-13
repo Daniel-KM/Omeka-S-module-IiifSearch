@@ -230,6 +230,42 @@ class ConfigForm extends Form
                     'id' => 'iiifsearch_extract_create_empty_file',
                 ],
             ])
+            ->add([
+                'name' => 'iiifsearch_extract_reocr_no_text_layer',
+                'type' => Element\Checkbox::class,
+                'options' => [
+                    'element_group' => 'ocr',
+                    'label' => 'Re-OCR pdf without text layer (requires ocrmypdf)', // @translate
+                    'info' => 'When a pdf has no extractable text, run ocrmypdf to add a text layer before extraction. Silently skipped when ocrmypdf is not installed.', // @translate
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_extract_reocr_no_text_layer',
+                ],
+            ])
+            ->add([
+                'name' => 'iiifsearch_extract_ocr_images',
+                'type' => Element\Checkbox::class,
+                'options' => [
+                    'element_group' => 'ocr',
+                    'label' => 'OCR images without pdf nor alto via tesseract', // @translate
+                    'info' => 'For items with only images (no pdf, no alto), run tesseract on each image to produce one alto file per page in files/alto/. Silently skipped when tesseract is not installed.', // @translate
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_extract_ocr_images',
+                ],
+            ])
+            ->add([
+                'name' => 'iiifsearch_extract_ocr_language',
+                'type' => Element\Text::class,
+                'options' => [
+                    'element_group' => 'ocr',
+                    'label' => 'OCR language for ocrmypdf', // @translate
+                    'info' => 'Tesseract language codes, e.g. "fra+eng". Used only when re-OCR is enabled.', // @translate
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_extract_ocr_language',
+                ],
+            ])
 
             ->add([
                 'name' => 'iiifsearch_extract',
